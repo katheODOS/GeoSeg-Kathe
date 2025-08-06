@@ -42,7 +42,7 @@ def get_training_transform():
 def train_aug(img, mask):
     # multi-scale training and crop
     crop_aug = Compose([RandomScale(scale_list=[0.75, 1.0, 1.25, 1.5], mode='value'),
-                        SmartCropV1(crop_size=256, max_ratio=0.75, ignore_index=255, nopad=False)])
+                        SmartCropV1(crop_size=256, max_ratio=0.75, ignore_index=0, nopad=False)])
     img, mask = crop_aug(img, mask)
 
     img, mask = np.array(img), np.array(mask)

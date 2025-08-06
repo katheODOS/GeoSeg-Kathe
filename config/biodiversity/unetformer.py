@@ -65,14 +65,14 @@ test_dataset = BiodiversityTestDataset()
 
 train_loader = DataLoader(dataset=train_dataset,
                           batch_size=train_batch_size,
-                          num_workers=4,
+                          num_workers=0,
                           pin_memory=True,
                           shuffle=True,
                           drop_last=True)
 
 val_loader = DataLoader(dataset=val_dataset,
                         batch_size=val_batch_size,
-                        num_workers=4,
+                        num_workers=0,
                         shuffle=False,
                         pin_memory=True,
                         drop_last=False)
