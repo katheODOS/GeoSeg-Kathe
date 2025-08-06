@@ -46,10 +46,6 @@ which mainly focuses on developing advanced Vision Transformers for remote sensi
 
 ## Supported Networks
 
-- Mamba
-
-  - [PyramidMamba](https://arxiv.org/abs/2406.10828)
-
 - Vision Transformer
 
   - [UNetFormer](https://authors.elsevier.com/a/1fIji3I9x1j9Fs) 
@@ -109,19 +105,15 @@ airs
 
 ## Install
 
-Open the folder **airs** using **Linux Terminal** and create python environment:
+Open the anaconda prompt  and create python environment:
 ```
-conda create -n airs python=3.8
-conda activate airs
+conda create -n GeoSeg-Kathe python=3.8
+conda activate GeoSeg-Kathe
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-pip install -r GeoSeg/requirements.txt
+cd your/path/to/anaconda3/envs/Geoseg-Kathe/GeoSeg-Kathe
+pip install -r GeoSeg-Kathe/requirements.txt
 ```
 
-Install Mamba
-```
-pip install causal-conv1d>=1.4.0
-pip install mamba-ssm
-```
 
 ## Pretrained Weights of Backbones
 
@@ -241,6 +233,12 @@ python GeoSeg/train_supervision.py -c GeoSeg/config/uavid/unetformer.py
 ```
 
 ## Testing
+
+HOW TO RUN: 
+
+from inside GeoSeg-Kathe code:
+> cd ../
+> PS C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe> python GeoSeg-Kathe/biodiversity_test.py -c GeoSeg-Kathe/config/biodiversity/unetformer.py -o "C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\predictions\unetformer-r18-512crop-ms-epoch30-rep" --rgb (sample command)
 
 "-c" denotes the path of the config, Use different **config** to test different models. 
 
