@@ -1,25 +1,25 @@
 from torch.utils.data import DataLoader
 from geoseg.losses import *
 from geoseg.datasets.biodiversity_dataset import *
-from geoseg.models.DCSwin import dcswin_small
+from geoseg.models.DCSwin import dcswin_base
 from tools.utils import Lookahead
 from tools.utils import process_model_params
 
 # training hparam
 max_epoch = 30
-ignore_index = len(CLASSES)
+ignore_index = 0
 train_batch_size = 8
 val_batch_size = 8
 lr = 6e-4
 weight_decay = 0.01
 backbone_lr = 6e-5
 backbone_weight_decay = 0.01
-num_classes = len(CLASSES)
+num_classes = 6
 classes = CLASSES
 
-weights_name = "dcswin-small-512crop-ms-epoch30"
+weights_name = "dcswin-base-512crop-ms-epoch30"
 weights_path = "model_weights/biodiversity/{}".format(weights_name)  # do not change
-test_weights_name = "dcswin-small-512crop-ms-epoch30"  # if save_top_k=3, there are v1,v2 model weights, i.e.xxx-v1, xxx-v2
+test_weights_name = "dcswin-base-512crop-ms-epoch30"  # if save_top_k=3, there are v1,v2 model weights, i.e.xxx-v1, xxx-v2
 log_name = 'biodiversity/{}'.format(weights_name)  # do not change
 monitor = 'val_mIoU'  # monitor metric, support val_mIoU, val_F1, val_OA
 monitor_mode = 'max'  # select the max one as the best model
@@ -31,7 +31,7 @@ gpus = 'auto'  # default or gpu ids:[0] or gpu nums: 2, more setting can refer t
 resume_ckpt_path = None  # whether continue training with the checkpoint, default None
 
 #  define the network, use pretrained backbone, the weight path of backbone
-net = dcswin_small(num_classes=num_classes, pretrained=True, weight_path='pretrain_weights/stseg_small.pth')
+net = dcswin_base(num_classes=num_classes, pretrained=True, weight_path='pretrain_weights/stseg_base.pth')
 
 # define the loss
 loss = JointLoss(SoftCrossEntropyLoss(smooth_factor=0.05, ignore_index=ignore_index),

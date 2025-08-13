@@ -29,7 +29,7 @@ class RandomCrop(object):
     A random crop is taken such that the crop fits within the image.
     If a centroid is passed in, the crop must intersect the centroid.
     """
-    def __init__(self, size=512, ignore_index=12, nopad=True):
+    def __init__(self, size=512, ignore_index=0, nopad=True):
 
         if isinstance(size, numbers.Number):
             self.size = (int(size), int(size))

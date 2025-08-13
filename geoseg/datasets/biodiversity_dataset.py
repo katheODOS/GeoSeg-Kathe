@@ -12,10 +12,9 @@ from PIL import Image, ImageOps
 import random
 
 
-CLASSES = ('Background','Forest land', 'Grassland', 'Cropland', 'Settlement', 'Seminatural Grassland')
+CLASSES = ('Forest land', 'Grassland', 'Cropland', 'Settlement', 'Seminatural Grassland')
 
-PALETTE = [[11, 246, 210],[250, 62, 119], [168, 232, 84],
-           [242, 180, 92], [116, 116, 116], [255, 214, 33]]
+PALETTE = [[250, 62, 119], [168, 232, 84], [242, 180, 92], [116, 116, 116], [255, 214, 33]]
 
 
 ORIGIN_IMG_SIZE = (512, 512)
@@ -212,19 +211,34 @@ class BiodiversityTestDataset(Dataset):
         return length
 
     def get_img_ids(self, data_root, img_dir):
-        
         rural_img_filename_list = os.listdir(osp.join(data_root, 'Rural', img_dir))
-        rural_img_ids = [(str(id.split('.')[0]), 'Rural') for id in rural_img_filename_list]
+        print(f"Total files found: {len(rural_img_filename_list)}")
+        print(f"Files: {rural_img_filename_list}")
+        
+        # Filter only PNG files and print what we're keeping
+        png_files = [f for f in rural_img_filename_list if f.lower().endswith('.png')]
+        print(f"PNG files after filtering: {len(png_files)}")
+        
+        rural_img_ids = [(str(id.split('.')[0]), 'Rural') for id in png_files]
         img_ids = rural_img_ids
-
+        
+        print(f"Final image IDs: {len(img_ids)}")
         return img_ids
 
     def load_img(self, index):
         img_id, img_type = self.img_ids[index]
         img_name = osp.join(self.data_root, img_type, self.img_dir, img_id + self.img_suffix)
-        img = Image.open(img_name).convert('RGB')
-
-        return img
+        print(f"Trying to load image {index}: {img_name}")
+        
+        if not os.path.exists(img_name):
+            print(f"ERROR: File does not exist: {img_name}")
+            
+        try:
+            img = Image.open(img_name).convert('RGB')
+            return img
+        except Exception as e:
+            print(f"ERROR loading {img_name}: {e}")
+            raise e
 
 
 def show_img_mask_seg(seg_path, img_path, mask_path, start_seg_index):

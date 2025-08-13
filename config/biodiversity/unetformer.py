@@ -7,14 +7,14 @@ from tools.utils import process_model_params
 
 # training hparam
 max_epoch = 30
-ignore_index = len(CLASSES)
+ignore_index = 0
 train_batch_size = 16
 val_batch_size = 16
 lr = 6e-4
 weight_decay = 0.01
 backbone_lr = 6e-5
 backbone_weight_decay = 0.01
-num_classes = len(CLASSES)
+num_classes = 6
 classes = CLASSES
 
 weights_name = "unetformer-r18-512crop-ms-epoch30-rep"
@@ -49,7 +49,7 @@ def get_training_transform():
 
 def train_aug(img, mask):
     crop_aug = Compose([RandomScale(scale_list=[0.75, 1.0, 1.25, 1.5], mode='value'),
-                        SmartCropV1(crop_size=512, max_ratio=0.75, ignore_index=ignore_index, nopad=False)])
+                        SmartCropV1(crop_size=512, max_ratio=0.75, ignore_index=0, nopad=False)])
     img, mask = crop_aug(img, mask)
     img, mask = np.array(img), np.array(mask)
     aug = get_training_transform()(image=img.copy(), mask=mask.copy())
@@ -65,14 +65,14 @@ test_dataset = BiodiversityTestDataset()
 
 train_loader = DataLoader(dataset=train_dataset,
                           batch_size=train_batch_size,
-                          num_workers=4,
+                          num_workers=0,
                           pin_memory=True,
                           shuffle=True,
                           drop_last=True)
 
 val_loader = DataLoader(dataset=val_dataset,
                         batch_size=val_batch_size,
-                        num_workers=4,
+                        num_workers=0,
                         shuffle=False,
                         pin_memory=True,
                         drop_last=False)

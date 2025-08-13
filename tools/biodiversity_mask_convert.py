@@ -10,6 +10,7 @@ import torch
 import random
 
 SEED = 322
+ignore_index = 0 
 
 CLASSES = ('Background','Forest land', 'Grassland', 'Cropland', 'Settlement', 'Seminatural Grassland')
 
@@ -35,10 +36,10 @@ def parse_args():
 
 
 def convert_label(mask):
-    mask[mask == 0] = 7
-    mask -= 1
-
-    return mask
+    # Keep background as 0 or set to ignore_index
+    mask_copy = mask.copy()
+    mask_copy[mask == 0] = ignore_index
+    return mask_copy
 
 def label2rgb(mask):
     h, w = mask.shape[0], mask.shape[1]
