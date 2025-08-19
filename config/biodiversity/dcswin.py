@@ -14,7 +14,7 @@ lr = 6e-4
 weight_decay = 0.01
 backbone_lr = 6e-5
 backbone_weight_decay = 0.01
-num_classes = 6
+num_classes = 5
 classes = CLASSES
 
 weights_name = "dcswin-base-512crop-ms-epoch30"
