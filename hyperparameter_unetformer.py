@@ -5,6 +5,8 @@ from pathlib import Path
 from itertools import product
 import torch
 import io
+import numpy as np
+import albumentations as albu  # Added missing import
 from torch.utils.data import DataLoader
 from geoseg.losses import *
 from geoseg.datasets.biodiversity_dataset import *
@@ -18,26 +20,35 @@ from io import StringIO
 import atexit
 import re
 from tools.metric import Evaluator
+from pytorch_lightning.callbacks import ModelCheckpoint
+import pytorch_lightning as pl
+from pytorch_lightning.loggers import CSVLogger
+
+num_classes = 6
+max_epoch = 30
 
 # Hyperparameter configurations
-LR = [6e-4, 3e-4, 1e-4]  # Base learning rates
-BACKBONE_LR = [6e-5, 3e-5, 1e-5]  # Backbone learning rates
+LR = [5e-4, 2e-4, 8e-5, 3e-5]  # Base learning rates
+BACKBONE_LR = [1e-4, 5e-5, 2e-5, 1e-5]  # Backbone learning rates
 BATCH_SIZES = [8, 16]
-EPOCHS = [30, 40]
-WEIGHT_DECAYS = [1e-2, 1e-3]
-BACKBONE_WEIGHT_DECAYS = [1e-2, 1e-3]
+EPOCHS = [30]
+WEIGHT_DECAYS = [1e-2]
+BACKBONE_WEIGHT_DECAYS = [1e-2]
 SCALE = [0.75, 1.0]
 
 # Dataset configurations with path mappings (following hyperparameter_tuning.py format)
 DATASETS = {
-    'biodiversity': {'name': 'Biodiversity Dataset', 'code': 'biodiversity', 'path': 'data/biodiversity/Train'},
+    'biodiversity': {'name': 'Biodiversity Dataset', 'code': 'biodiversity', 'path': 'Biodiversity/Train'},
 }
+
+# Add these class names after the hyperparameter configurations
+CLASS_NAMES = ['Background', 'Forest land', 'Grassland', 'Cropland', 'Settlement', 'Seminatural Grassland']
 
 def setup_checkpoint_dir(dataset_code, lr, backbone_lr, wd, backbone_wd, epochs, batch_size, scale):
     """Create and return checkpoint directory for specific configuration"""
     # Following hyperparameter_tuning.py naming convention
     dir_name = f"{dataset_code}L{lr:.0e}BL{backbone_lr:.0e}W{wd:.0e}BW{backbone_wd:.0e}B{batch_size}E{epochs}S{scale:.2f}"
-    checkpoint_dir = Path('./checkpoints') / dir_name
+    checkpoint_dir = Path('C:/Users/Admin/anaconda3/envs/GeoSeg-Kathe/model_weights/biodiversity') / dir_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     return checkpoint_dir
 
@@ -94,7 +105,6 @@ class SafeOutputCapture:
         logging.getLogger().removeHandler(self.log_handler)
         self.buffer.close()
 
-
 def extract_latest_validation_score(output_text):
     """Extract the most recent validation score from the output"""
     matches = re.findall(r'INFO: Validation Dice score: (\d+\.\d+)', output_text)
@@ -110,7 +120,7 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Initialize model
-    model = UNetFormer(num_classes=5)  # Using 5 classes as per unetformer.py
+    model = UNetFormer(num_classes=6)  # Fixed: using consistent num_classes=6
     model = model.to(device=device)
     
     with SafeOutputCapture() as output:
@@ -120,12 +130,6 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
             sys.stdout.write("="*80 + "\n")
             sys.stdout.write(config_details + "\n")
             sys.stdout.write("="*80 + "\n\n")
-            
-            # Setup dataset with proper transforms
-            train_transform = [
-                albu.HorizontalFlip(p=0.5),
-                albu.Normalize()
-            ]
             
             # Setup train dataset and loader
             train_dataset = BiodiversityTrainDataset(
@@ -153,12 +157,12 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
                 drop_last=False
             )
             
-            # Setup optimizer and scheduler
+            # Setup optimizer and scheduler - FIXED: use 'model' instead of 'net'
             layerwise_params = {"backbone.*": dict(lr=backbone_lr, weight_decay=backbone_weight_decay)}
-            net_params = process_model_params(model, layerwise_params=layerwise_params)
+            net_params = process_model_params(model, layerwise_params=layerwise_params)  # Changed from 'net' to 'model'
             base_optimizer = torch.optim.AdamW(net_params, lr=lr, weight_decay=weight_decay)
             optimizer = Lookahead(base_optimizer)
-            lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
+            lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)  # Changed from max_epoch to epochs
             
             # Setup loss
             loss_fn = UnetFormerLoss(ignore_index=0)
@@ -179,68 +183,152 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
                 f.write(config_log)
             
             # Setup evaluator for metrics
-            evaluator = Evaluator(num_classes=5)
+            evaluator = Evaluator(num_class=6)
             
-            # Training loop implementation
-            for epoch in range(epochs):
-                model.train()
-                total_train_loss = 0
+            # Setup checkpoint callback
+            checkpoint_callback = ModelCheckpoint(
+                dirpath=checkpoint_dir,
+                filename='checkpoint_epoch{epoch:02d}',
+                save_top_k=3,  # Save the best 3 models
+                monitor='val_loss',
+                mode='min',
+                save_last=True
+            )
+            
+            # Setup logger
+            logger = CSVLogger(str(checkpoint_dir), name='training_logs')
+            
+            # Create a LightningModule wrapper for the model
+            class LitModel(pl.LightningModule):
+                def __init__(self, model, loss_fn, optimizer, scheduler):
+                    super().__init__()
+                    self.model = model
+                    self.loss_fn = loss_fn
+                    self.optimizer = optimizer
+                    self.scheduler = scheduler
+                    self.evaluator = Evaluator(num_class=6)
+                    self.class_names = CLASS_NAMES  # Add class names
                 
-                for batch in train_loader:
-                    images = batch['img'].to(device)
-                    masks = batch['gt_semantic_seg'].to(device)
+                def forward(self, x):
+                    return self.model(x)
+                
+                def training_step(self, batch, batch_idx):
+                    images, masks = batch['img'], batch['gt_semantic_seg']
+                    outputs = self(images)
+                    loss = self.loss_fn(outputs, masks)
+                    self.log('train_loss', loss)
+                    return {"loss": loss}
+                
+                def validation_step(self, batch, batch_idx):
+                    images, masks = batch['img'], batch['gt_semantic_seg']
+                    outputs = self(images)
+                    loss = self.loss_fn(outputs, masks)
+                    self.log('val_loss', loss)
                     
-                    optimizer.zero_grad()
-                    outputs = model(images)
-                    loss = loss_fn(outputs, masks)
-                    loss.backward()
-                    optimizer.step()
+                    # Calculate metrics
+                    pred = outputs.data.cpu().numpy()
+                    target = masks.cpu().numpy()
+                    pred = np.argmax(pred, axis=1)
+                    self.evaluator.add_batch(target, pred)
+                    return loss
+                
+                def on_validation_epoch_end(self):
+                    iou_per_class = self.evaluator.Intersection_over_Union()
+                    f1_per_class = self.evaluator.F1()
                     
-                    total_train_loss += loss.item()
+                    scores = {
+                        'mIoU': np.nanmean(iou_per_class),
+                        'F1': np.nanmean(f1_per_class),
+                        'OA': self.evaluator.OA()
+                    }
+                    
+                    # Log overall metrics
+                    self.log_dict(scores)
+                    
+                    # Create per-class metrics dictionary
+                    class_metrics = {}
+                    for name, iou, f1 in zip(self.class_names, iou_per_class, f1_per_class):
+                        class_metrics[f'{name}_IoU'] = iou
+                        class_metrics[f'{name}_F1'] = f1
+                    
+                    # Log per-class metrics
+                    self.log_dict(class_metrics)
+                    
+                    # Format detailed logging string
+                    class_metrics_str = "\n".join([
+                        f"'{name}': {iou:.4f}" 
+                        for name, iou in zip(self.class_names, iou_per_class)
+                    ])
+                    
+                    print(f"""
+Epoch: {self.current_epoch}
+Val mIoU: {scores['mIoU']:.4f}
+Val F1: {scores['F1']:.4f}
+Val OA: {scores['OA']:.4f}
+Per-class IoU:
+{class_metrics_str}
+""")
+                    
+                    self.evaluator.reset()
+
+                def on_train_epoch_end(self):
+                    iou_per_class = self.evaluator.Intersection_over_Union()
+                    f1_per_class = self.evaluator.F1()
+                    
+                    scores = {
+                        'mIoU': np.nanmean(iou_per_class),
+                        'F1': np.nanmean(f1_per_class),
+                        'OA': self.evaluator.OA()
+                    }
+                    
+                    # Log overall metrics
+                    self.log_dict({'train_' + k: v for k, v in scores.items()})
+                    
+                    # Format class-specific metrics
+                    class_metrics_str = "\n".join([
+                        f"'{name}': {iou:.4f}" 
+                        for name, iou in zip(self.class_names, iou_per_class)
+                    ])
+                    
+                    print(f"""
+Epoch: {self.current_epoch}
+Train mIoU: {scores['mIoU']:.4f}
+Train F1: {scores['F1']:.4f}
+Train OA: {scores['OA']:.4f}
+Per-class IoU:
+{class_metrics_str}
+""")
+                    
+                    self.evaluator.reset()
                 
-                # Calculate average training loss
-                train_loss = total_train_loss / len(train_loader)
-                
-                # Validation phase
-                model.eval()
-                total_val_loss = 0
-                evaluator.reset()
-                
-                with torch.no_grad():
-                    for batch in val_loader:
-                        images = batch['img'].to(device)
-                        masks = batch['gt_semantic_seg'].to(device)
-                        
-                        outputs = model(images)
-                        val_loss = loss_fn(outputs, masks)
-                        total_val_loss += val_loss.item()
-                        
-                        # Get predictions for metrics
-                        pred = outputs.data.cpu().numpy()
-                        target = masks.cpu().numpy()
-                        pred = np.argmax(pred, axis=1)
-                        evaluator.add_batch(target, pred)
-                
-                # Calculate validation metrics
-                val_loss = total_val_loss / len(val_loader)
-                val_score = {
-                    'mIoU': evaluator.Mean_Intersection_over_Union(),
-                    'F1': evaluator.F1(),
-                    'OA': evaluator.Pixel_Accuracy()
-                }
-                
-                # Log metrics to stdout
-                logging.info(f"""
-                Epoch: {epoch}
-                Train Loss: {train_loss:.4f}
-                Val Loss: {val_loss:.4f}
-                Val mIoU: {val_score['mIoU']:.4f}
-                Val F1: {val_score['F1']:.4f}
-                Val OA: {val_score['OA']:.4f}
-                """)
-                
-                # Update learning rate
-                lr_scheduler.step()
+                def configure_optimizers(self):
+                    return {
+                        "optimizer": self.optimizer,
+                        "lr_scheduler": {
+                            "scheduler": self.scheduler,
+                            "interval": "epoch",
+                        },
+                    }
+            
+            # Create LightningModule instance
+            lit_model = LitModel(model, loss_fn, optimizer, lr_scheduler)
+            
+            # Setup trainer with disabled progress bar
+            trainer = pl.Trainer(
+                max_epochs=epochs,
+                callbacks=[checkpoint_callback],
+                logger=logger,
+                accelerator='gpu' if torch.cuda.is_available() else 'cpu',
+                devices=1,
+                enable_progress_bar=False  # Disable progress bar
+            )
+            
+            # Train the model
+            trainer.fit(
+                lit_model,
+                train_dataloaders=train_loader,
+                val_dataloaders=val_loader
+            )
             
         except Exception as e:
             print(f"Training failed with error: {str(e)}")
@@ -253,7 +341,8 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
 
 def is_training_completed(checkpoint_dir, epochs):
     """Check if training was already completed for this configuration"""
-    final_checkpoint = checkpoint_dir / f'checkpoint_epoch{epochs}.pth'
+    # Check for PyTorch Lightning checkpoint files
+    final_checkpoint = checkpoint_dir / 'last.ckpt'
     return final_checkpoint.exists()
 
 def main():
@@ -267,7 +356,7 @@ def main():
     # Create all possible combinations of hyperparameters
     configs = list(product(
         DATASETS.items(),
-        lr,
+        LR,
         BACKBONE_LR,
         BATCH_SIZES,
         EPOCHS,
