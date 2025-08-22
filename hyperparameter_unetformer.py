@@ -22,11 +22,11 @@ from tools.metric import Evaluator
 # Hyperparameter configurations
 LR = [6e-4, 3e-4, 1e-4]  # Base learning rates
 BACKBONE_LR = [6e-5, 3e-5, 1e-5]  # Backbone learning rates
-BATCH_SIZES = [8, 16, 32]
-EPOCHS = [30, 40, 50]
+BATCH_SIZES = [8, 16]
+EPOCHS = [30, 40]
 WEIGHT_DECAYS = [1e-2, 1e-3]
 BACKBONE_WEIGHT_DECAYS = [1e-2, 1e-3]
-SCALE = [0.75, 1.0, 1.25]
+SCALE = [0.75, 1.0]
 
 # Dataset configurations with path mappings (following hyperparameter_tuning.py format)
 DATASETS = {
