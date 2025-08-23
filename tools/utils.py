@@ -112,6 +112,9 @@ class Lookahead(Optimizer):
         self.fast_state = self.optimizer.state
         for group in self.param_groups:
             group["counter"] = 0
+        # Add these lines in the __init__ method of Lookahead class
+        self._optimizer_step_pre_hooks = getattr(optimizer, '_optimizer_step_pre_hooks', {})
+        self._optimizer_step_post_hooks = getattr(optimizer, '_optimizer_step_post_hooks', {})
 
     def update(self, group):
         """@TODO: Docs. Contribution is welcome."""
@@ -181,6 +184,10 @@ class Lookahead(Optimizer):
         """@TODO: Docs. Contribution is welcome."""
         param_group["counter"] = 0
         self.optimizer.add_param_group(param_group)
+    
+    def zero_grad(self, set_to_none: bool = False):
+        """Clears the gradients of all optimized parameters."""
+        self.optimizer.zero_grad(set_to_none=set_to_none)
 
     @classmethod
     def get_from_params(
