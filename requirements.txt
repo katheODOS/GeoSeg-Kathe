@@ -12,3 +12,6 @@ einops
 addict
 ftfy
 regex
+searborn
+scikit-learn
+numpy
