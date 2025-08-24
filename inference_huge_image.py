@@ -77,6 +77,17 @@ def uavid2rgb(mask):
     mask_rgb = cv2.cvtColor(mask_rgb, cv2.COLOR_RGB2BGR)
     return mask_rgb
 
+def biodiversity2rgb(mask):
+    h, w = mask.shape[0], mask.shape[1]
+    mask_rgb = np.zeros(shape=(h, w, 3), dtype=np.uint8)
+    mask_convert = mask[np.newaxis, :, :]
+    mask_rgb[np.all(mask_convert == 0, axis=0)] = [11, 246, 210] #ignore index
+    mask_rgb[np.all(mask_convert == 1, axis=0)] = [250, 62, 119] #forestland
+    mask_rgb[np.all(mask_convert == 2, axis=0)] = [168, 232, 84] #grassland
+    mask_rgb[np.all(mask_convert == 3, axis=0)] = [242, 180, 92] #cropland
+    mask_rgb[np.all(mask_convert == 4, axis=0)] = [116, 116, 116] #settlement
+    mask_rgb[np.all(mask_convert == 5, axis=0)] = [255, 214, 33] #seminatural grassland
+    return mask_rgb
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -88,7 +99,7 @@ def get_args():
     arg("-ph", "--patch-height", help="height of patch size", type=int, default=512)
     arg("-pw", "--patch-width", help="width of patch size", type=int, default=512)
     arg("-b", "--batch-size", help="batch size", type=int, default=2)
-    arg("-d", "--dataset", help="dataset", default="pv", choices=["pv", "landcoverai", "uavid", "building"])
+    arg("-d", "--dataset", help="dataset", default="biodiversity", choices=["pv", "landcoverai", "uavid", "building", "biodiversity"])
     return parser.parse_args()
 
 
@@ -144,7 +155,7 @@ def make_dataset_for_one_huge_image(img_path, patch_size):
 
 def main():
     args = get_args()
-    seed_everything(42)
+    seed_everything(322)
     patch_size = (args.patch_height, args.patch_width)
     config = py2cfg(args.config_path)
     model = Supervision_Train.load_from_checkpoint(os.path.join(config.weights_path, config.test_weights_name+'.ckpt'), config=config)
@@ -175,9 +186,7 @@ def main():
     img_paths = []
     if not os.path.exists(args.output_path):
         os.makedirs(args.output_path)
-    for ext in ('*.tif', '*.png', '*.jpg'):
-        img_paths.extend(glob.glob(os.path.join(args.image_path, ext)))
-    img_paths.sort()
+    img_paths = [str(args.image_path)]  # Use only the single image path provided
     # print(img_paths)
     for img_path in img_paths:
         img_name = img_path.split('/')[-1]
@@ -223,6 +232,8 @@ def main():
             output_mask = uavid2rgb(output_mask)
         elif args.dataset == 'building':
             output_mask = building_to_rgb(output_mask)
+        elif args.dataset == 'biodiversity':
+            output_mask = biodiversity2rgb(output_mask)
         else:
             output_mask = output_mask
         # print(img_shape, output_mask.shape)
