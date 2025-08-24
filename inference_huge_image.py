@@ -81,12 +81,13 @@ def biodiversity2rgb(mask):
     h, w = mask.shape[0], mask.shape[1]
     mask_rgb = np.zeros(shape=(h, w, 3), dtype=np.uint8)
     mask_convert = mask[np.newaxis, :, :]
-    mask_rgb[np.all(mask_convert == 0, axis=0)] = [11, 246, 210] #ignore index
-    mask_rgb[np.all(mask_convert == 1, axis=0)] = [250, 62, 119] #forestland
-    mask_rgb[np.all(mask_convert == 2, axis=0)] = [168, 232, 84] #grassland
-    mask_rgb[np.all(mask_convert == 3, axis=0)] = [242, 180, 92] #cropland
-    mask_rgb[np.all(mask_convert == 4, axis=0)] = [116, 116, 116] #settlement
-    mask_rgb[np.all(mask_convert == 5, axis=0)] = [255, 214, 33] #seminatural grassland
+    # BGR format for cv2.imwrite (note: swapped R and B values)
+    mask_rgb[np.all(mask_convert == 0, axis=0)] = [210, 246, 11]   # BGR: ignore index
+    mask_rgb[np.all(mask_convert == 1, axis=0)] = [119, 62, 250]  # BGR: forestland  
+    mask_rgb[np.all(mask_convert == 2, axis=0)] = [84, 232, 168]  # BGR: grassland
+    mask_rgb[np.all(mask_convert == 3, axis=0)] = [92, 180, 242]  # BGR: cropland
+    mask_rgb[np.all(mask_convert == 4, axis=0)] = [116, 116, 116] # BGR: settlement (gray = same)
+    mask_rgb[np.all(mask_convert == 5, axis=0)] = [33, 214, 255]  # BGR: seminatural grassland
     return mask_rgb
 
 def get_args():
@@ -137,12 +138,34 @@ class InferenceDataset(Dataset):
 
 
 def make_dataset_for_one_huge_image(img_path, patch_size):
-    img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+    """
+    Process a single large image by splitting it into patches
+    """
+    print(f"Loading image from: {img_path}")
+    
+    # Check if file exists
+    if not os.path.exists(img_path):
+        raise FileNotFoundError(f"Image file not found: {img_path}")
+    
+    # Load the image
+    img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError(f"Could not load image from: {img_path}")
+    
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    print(f"Original image shape: {img.shape}")
+    
     tile_list = []
     image_pad, height_pad, width_pad = get_img_padded(img.copy(), patch_size)
+    print(f"Padded image shape: {image_pad.shape}")
 
     output_height, output_width = image_pad.shape[0], image_pad.shape[1]
+    
+    # Calculate number of patches
+    num_patches_h = output_height // patch_size[0]
+    num_patches_w = output_width // patch_size[1]
+    total_patches = num_patches_h * num_patches_w
+    print(f"Will create {total_patches} patches ({num_patches_h}x{num_patches_w})")
 
     for x in range(0, output_height, patch_size[0]):
         for y in range(0, output_width, patch_size[1]):
@@ -157,88 +180,119 @@ def main():
     args = get_args()
     seed_everything(322)
     patch_size = (args.patch_height, args.patch_width)
+    
+    print(f"Processing image: {args.image_path}")
+    print(f"Patch size: {patch_size}")
+    print(f"Batch size: {args.batch_size}")
+    print(f"Output directory: {args.output_path}")
+    
+    # Load config and model
     config = py2cfg(args.config_path)
-    model = Supervision_Train.load_from_checkpoint(os.path.join(config.weights_path, config.test_weights_name+'.ckpt'), config=config)
+    model = Supervision_Train.load_from_checkpoint(
+        os.path.join(config.weights_path, config.test_weights_name+'.ckpt'), 
+        config=config
+    )
 
     model.cuda()
     model.eval()
 
+    # Set up TTA if requested
     if args.tta == "lr":
-        transforms = tta.Compose(
-            [
-                tta.HorizontalFlip(),
-                tta.VerticalFlip()
-            ]
-        )
+        transforms = tta.Compose([
+            tta.HorizontalFlip(),
+            tta.VerticalFlip()
+        ])
         model = tta.SegmentationTTAWrapper(model, transforms)
     elif args.tta == "d4":
-        transforms = tta.Compose(
-            [
-                tta.HorizontalFlip(),
-                # tta.VerticalFlip(),
-                # tta.Rotate90(angles=[0, 90, 180, 270]),
-                tta.Scale(scales=[0.75, 1, 1.25, 1.5, 1.75]),
-                # tta.Multiply(factors=[0.8, 1, 1.2])
-            ]
-        )
+        transforms = tta.Compose([
+            tta.HorizontalFlip(),
+            tta.Scale(scales=[0.75, 1, 1.25, 1.5, 1.75]),
+        ])
         model = tta.SegmentationTTAWrapper(model, transforms)
 
-    img_paths = []
+    # Create output directory
     if not os.path.exists(args.output_path):
         os.makedirs(args.output_path)
-    img_paths = [str(args.image_path)]  # Use only the single image path provided
-    # print(img_paths)
-    for img_path in img_paths:
-        img_name = img_path.split('/')[-1]
-        # print('origin mask', original_mask.shape)
+
+    # Process the single image specified by -i parameter
+    img_path = str(args.image_path)
+    img_name = os.path.basename(img_path)
+    
+    try:
+        # Create dataset from the single image
         dataset, width_pad, height_pad, output_width, output_height, img_pad, img_shape = \
             make_dataset_for_one_huge_image(img_path, patch_size)
-        # print('img_padded', img_pad.shape)
+        
+        print(f"Created dataset with {len(dataset)} patches")
+        
+        # Initialize output mask
         output_mask = np.zeros(shape=(output_height, output_width), dtype=np.uint8)
         output_tiles = []
-        k = 0
+        
+        # Process patches
         with torch.no_grad():
-            dataloader = DataLoader(dataset=dataset, batch_size=args.batch_size,
-                                    drop_last=False, shuffle=False)
-            for input in tqdm(dataloader):
-                # raw_prediction NxCxHxW
-                raw_predictions = model(input['img'].cuda())
-                # print('raw_pred shape:', raw_predictions.shape)
+            dataloader = DataLoader(
+                dataset=dataset, 
+                batch_size=args.batch_size,
+                drop_last=False, 
+                shuffle=False,
+                num_workers=0  # Set to 0 to avoid multiprocessing issues
+            )
+            
+            print(f"Processing {len(dataloader)} batches...")
+            
+            for batch_idx, input_batch in enumerate(tqdm(dataloader, desc="Processing patches")):
+                # Get predictions
+                raw_predictions = model(input_batch['img'].cuda())
                 raw_predictions = nn.Softmax(dim=1)(raw_predictions)
-                # input_images['features'] NxCxHxW C=3
                 predictions = raw_predictions.argmax(dim=1)
-                image_ids = input['img_id']
-                # print('prediction', predictions.shape)
-                # print(np.unique(predictions))
+                image_ids = input_batch['img_id']
 
+                # Store results
                 for i in range(predictions.shape[0]):
                     mask = predictions[i].cpu().numpy()
                     output_tiles.append((mask, image_ids[i].cpu().numpy()))
 
+        print("Reconstructing full image from patches...")
+        
+        # Reconstruct the full mask from patches
+        k = 0
         for m in range(0, output_height, patch_size[0]):
             for n in range(0, output_width, patch_size[1]):
-                output_mask[m:m + patch_size[0], n:n + patch_size[1]] = output_tiles[k][0]
-                # print(output_tiles[k][1])
-                k = k + 1
+                if k < len(output_tiles):
+                    output_mask[m:m + patch_size[0], n:n + patch_size[1]] = output_tiles[k][0]
+                    k += 1
 
-        output_mask = output_mask[-img_shape[0]:, -img_shape[1]:]
+        # Remove padding to get back to original size
+        output_mask = output_mask[:img_shape[0], :img_shape[1]]
+        print(f"Final mask shape: {output_mask.shape}")
 
-        # print('mask', output_mask.shape)
+        # Convert to RGB based on dataset type
         if args.dataset == 'landcoverai':
-            output_mask = landcoverai_to_rgb(output_mask)
+            output_mask_rgb = landcoverai_to_rgb(output_mask)
         elif args.dataset == 'pv':
-            output_mask = pv2rgb(output_mask)
+            output_mask_rgb = pv2rgb(output_mask)
         elif args.dataset == 'uavid':
-            output_mask = uavid2rgb(output_mask)
+            output_mask_rgb = uavid2rgb(output_mask)
         elif args.dataset == 'building':
-            output_mask = building_to_rgb(output_mask)
+            output_mask_rgb = building_to_rgb(output_mask)
         elif args.dataset == 'biodiversity':
-            output_mask = biodiversity2rgb(output_mask)
+            output_mask_rgb = biodiversity2rgb(output_mask)
         else:
-            output_mask = output_mask
-        # print(img_shape, output_mask.shape)
-        # assert img_shape == output_mask.shape
-        cv2.imwrite(os.path.join(args.output_path, img_name), output_mask)
+            output_mask_rgb = output_mask
+
+        # Save the result
+        output_path = os.path.join(args.output_path, img_name)
+        cv2.imwrite(output_path, output_mask_rgb)
+        print(f"Saved result to: {output_path}")
+        
+        # Print some statistics
+        unique_classes = np.unique(output_mask)
+        print(f"Classes found in prediction: {unique_classes}")
+        
+    except Exception as e:
+        print(f"Error processing image {img_path}: {str(e)}")
+        raise
 
 
 if __name__ == "__main__":
