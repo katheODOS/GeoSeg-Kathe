@@ -11,8 +11,9 @@ SCALE = [0.75, 1.0]
 KEY OBSERVATIONS:
 BEST LR (ranked): 5e-4, 2e-4, 8e-5, 3e-5
 BEST BACKBONE_LR (ranked): 5e-5, 1e-4, 2e-5, 1e-5
-BEST SCALE: 1.00 and 0.75 give comparable results. 0.75 is slightly more consistent (1.00 gives both best and worst MIOU)
-BATCH SIZE: 8 and 16 give comparable results. B16 is best and worst results. 
+BEST SCALE: 1.00 and 0.75 give comparable results. 0.75 is slightly more consistent (1.00 gives both best and worst MIOU). Scale 1.00 appears in 6 of top 10 results: better variance, higher peak performance. 
+BATCH SIZE: 8 and 16 give comparable results. B16 is best and worst results. Batch 16 is in 7/10 top configurations. Consistently outperforms across different learning rate combos. 
+
 mIoU Scores (sorted):
 ==================================================
 biodiversityL5e-04BL5e-05W1e-02BW1e-02B16E30S1.00: 0.7969
@@ -89,6 +90,7 @@ biodiversityL5e-04BL5e-05W1e-02BW1e-02B8E30S0.75: 0.8825
 biodiversityL2e-04BL1e-04W1e-02BW1e-02B8E30S0.75: 0.8823
 biodiversityL5e-04BL5e-05W1e-02BW1e-02B16E30S0.75: 0.8814
 biodiversityL2e-04BL1e-04W1e-02BW1e-02B16E30S1.00: 0.8810
+biodiversityL5e-04BL1e-04W1e-02BW1e-02B8E30S0.75: 0.8795
 biodiversityL8e-05BL1e-04W1e-02BW1e-02B16E30S1.00: 0.8789
 biodiversityL5e-04BL1e-04W1e-02BW1e-02B16E30S1.00: 0.8781
 biodiversityL2e-04BL5e-05W1e-02BW1e-02B16E30S1.00: 0.8777
@@ -146,7 +148,7 @@ biodiversityL3e-05BL2e-05W1e-02BW1e-02B16E30S1.00: 0.8321
 biodiversityL3e-05BL2e-05W1e-02BW1e-02B16E30S0.75: 0.8265
 biodiversityL3e-05BL1e-05W1e-02BW1e-02B8E30S1.00: 0.8255
 biodiversityL3e-05BL1e-05W1e-02BW1e-02B16E30S1.00: 0.8207
-biodiversityL5e-04BL1e-04W1e-02BW1e-02B8E30S0.75: 0.0000
+
 
 
 OA Scores (sorted):

@@ -28,13 +28,13 @@ num_classes = 6
 max_epoch = 30
 
 # Hyperparameter configurations
-LR = [5e-4, 2e-4, 8e-5, 3e-5]  # Base learning rates: default 6e-4
-BACKBONE_LR = [1e-4, 5e-5, 2e-5, 1e-5]  # Backbone learning rates default 6e-5
-BATCH_SIZES = [8, 16]
-EPOCHS = [30]
+LR = [6e-4, 5e-4, 2e-4]  # Base learning rates: default 6e-4
+BACKBONE_LR = [1e-4, 1e-5]  # Backbone learning rates default 6e-5
+BATCH_SIZES = [16]
+EPOCHS = [50, 75]
 WEIGHT_DECAYS = [1e-2]
 BACKBONE_WEIGHT_DECAYS = [1e-2]
-SCALE = [0.75, 1.0]
+SCALE = [1.0]
 
 # Dataset configurations with path mappings (following hyperparameter_tuning.py format)
 DATASETS = {
