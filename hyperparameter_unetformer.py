@@ -28,8 +28,8 @@ num_classes = 6
 max_epoch = 30
 
 # Hyperparameter configurations
-LR = [6e-4, 5e-4, 2e-4]  # Base learning rates: default 6e-4
-BACKBONE_LR = [1e-4, 1e-5]  # Backbone learning rates default 6e-5
+LR = [5e-4, 6e-4, 2e-4]  # Base learning rates: default 6e-4
+BACKBONE_LR = [5e-5, 1e-4]  # Backbone learning rates default 6e-5
 BATCH_SIZES = [16]
 EPOCHS = [50, 75]
 WEIGHT_DECAYS = [1e-2]
