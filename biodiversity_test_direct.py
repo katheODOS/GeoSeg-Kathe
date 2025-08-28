@@ -200,3 +200,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    # sample usage: python GeoSeg-Kathe/biodiversity_test_direct.py -c GeoSeg-Kathe/config/biodiversity/unetformer.py -w "C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\model_weights\biodiversity\biodiversityL5e-04BL1e-04W1e-02BW1e-02B16E75S1.00\last.ckpt" -i "C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\data\Biodiversity\Test_2\Rural\images_png" -o "C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\predictions\best\config3" --rgb
