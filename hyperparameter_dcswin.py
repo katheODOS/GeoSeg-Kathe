@@ -10,14 +10,14 @@ import albumentations as albu  # Added missing import
 from torch.utils.data import DataLoader
 from geoseg.losses import *
 from geoseg.datasets.biodiversity_dataset import *
-from geoseg.models.DCSwin import dcswin_base  # Change model import
+from geoseg.models.DCSwin import *
 from tools.utils import Lookahead
 from tools.utils import process_model_params
 from contextlib import redirect_stdout
 from tqdm import tqdm
 import traceback 
 from io import StringIO
-import atexit  # Fix typo in import
+import atexit
 import re
 from tools.metric import Evaluator
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -27,14 +27,14 @@ from pytorch_lightning.loggers import CSVLogger
 num_classes = 6
 max_epoch = 30
 
-# Hyperparameter configurations adjusted for DCSwin
-LR = [6e-4, 3e-4, 1e-4, 5e-5]  # Base learning rates adjusted for DCSwin
-BACKBONE_LR = [6e-5, 3e-5, 1e-5, 5e-6]  # Backbone learning rates adjusted for DCSwin
-BATCH_SIZES = [8, 16]
-EPOCHS = [30]
+# Hyperparameter configurations - DC-Swin specific parameters
+LR = [3e-4, 1e-4, 5e-5, 2e-5]  # Base learning rates: default 6e-4
+BACKBONE_LR = [3e-5, 1e-5, 5e-6, 2e-6]  # Backbone learning rates default 6e-5
+BATCH_SIZES = [8]  # Smaller batch size for DC-Swin due to memory requirements
+EPOCHS = [30]  # Reduced from 75 to 50 for faster experimentation
 WEIGHT_DECAYS = [1e-2]
 BACKBONE_WEIGHT_DECAYS = [1e-2]
-SCALE = [0.75, 1.0]
+SCALE = [1.0]
 
 # Dataset configurations with path mappings (following hyperparameter_tuning.py format)
 DATASETS = {
@@ -46,8 +46,8 @@ CLASS_NAMES = ['Background', 'Forest land', 'Grassland', 'Cropland', 'Settlement
 
 def setup_checkpoint_dir(dataset_code, lr, backbone_lr, wd, backbone_wd, epochs, batch_size, scale):
     """Create and return checkpoint directory for specific configuration"""
-    # Following hyperparameter_tuning.py naming convention
-    dir_name = f"{dataset_code}L{lr:.0e}BL{backbone_lr:.0e}W{wd:.0e}BW{backbone_wd:.0e}B{batch_size}E{epochs}S{scale:.2f}"
+    # Following hyperparameter_tuning.py naming convention with dcswin prefix
+    dir_name = f"dcswin_{dataset_code}L{lr:.0e}BL{backbone_lr:.0e}W{wd:.0e}BW{backbone_wd:.0e}B{batch_size}E{epochs}S{scale:.2f}"
     checkpoint_dir = Path('C:/Users/Admin/anaconda3/envs/GeoSeg-Kathe/model_weights/biodiversity') / dir_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     return checkpoint_dir
@@ -72,7 +72,7 @@ def save_run_output(output_text, checkpoint_dir):
         f.write(output_text)
 
 class SafeOutputCapture:
-    def __init__(self):  # Fix typo in method name
+    def __init__(self):
         self.buffer = StringIO()
         self.original_stdout = sys.stdout
         self.original_stderr = sys.stderr
@@ -119,11 +119,11 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
     """Run training with specific configuration and capture output"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    # Initialize DCSwin model instead of UNetFormer
-    model = dcswin_base(
-        num_classes=num_classes, 
-        pretrained=True, 
-        weight_path='pretrain_weights/stseg_base.pth'
+    # Initialize DC-Swin model with pretrained weights
+    model = dcswin_small(
+        num_classes=6,
+        pretrained=True,
+        weight_path='pretrain_weights/stseg_small.pth'
     )
     model = model.to(device=device)
     
@@ -154,26 +154,25 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
             val_dataset = biodiversity_val_dataset
             val_loader = DataLoader(
                 dataset=val_dataset,
-                batch_size=batch_size,  # Using same batch size as training
+                batch_size=batch_size,
                 num_workers=0,
                 shuffle=False,
                 pin_memory=True,
                 drop_last=False
             )
             
-            # Setup optimizer and scheduler - FIXED: use 'model' instead of 'net'
+            # Setup optimizer and scheduler - use layerwise learning rates for DC-Swin
             layerwise_params = {"backbone.*": dict(lr=backbone_lr, weight_decay=backbone_weight_decay)}
-            net_params = process_model_params(model, layerwise_params=layerwise_params)  # Changed from 'net' to 'model'
+            net_params = process_model_params(model, layerwise_params=layerwise_params)
             base_optimizer = torch.optim.AdamW(net_params, lr=lr, weight_decay=weight_decay)
             optimizer = Lookahead(base_optimizer)
-            lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)  # Changed from max_epoch to epochs
+            lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
             
-            # Setup loss - using the same loss as in dcswin.py config
+            # Setup loss - use JointLoss for DC-Swin
             loss_fn = JointLoss(
                 SoftCrossEntropyLoss(smooth_factor=0.05, ignore_index=0),
                 DiceLoss(smooth=0.05, ignore_index=0), 
-                1.0, 
-                1.0
+                1.0, 1.0
             )
             
             # Save detailed configuration at start of training
@@ -187,6 +186,7 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
             Backbone Weight Decay: {backbone_weight_decay}
             Scale: {scale}
             Checkpoint Directory: {checkpoint_dir}
+            Model: DC-Swin Small
             """
             with open(checkpoint_dir / 'config.txt', 'w') as f:
                 f.write(config_log)
@@ -216,7 +216,7 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
                     self.optimizer = optimizer
                     self.scheduler = scheduler
                     self.evaluator = Evaluator(num_class=6)
-                    self.class_names = CLASS_NAMES  # Add class names
+                    self.class_names = CLASS_NAMES
                 
                 def forward(self, x):
                     return self.model(x)
@@ -431,7 +431,8 @@ Epochs: {epochs}
 Weight Decay: {weight_decay}
 Backbone Weight Decay: {backbone_weight_decay}
 Scale: {scale}
-Checkpoint Directory: {checkpoint_dir}"""
+Checkpoint Directory: {checkpoint_dir}
+Model: DC-Swin Base"""
             
             # Run training with config details
             try:
@@ -444,7 +445,7 @@ Checkpoint Directory: {checkpoint_dir}"""
                     epochs,
                     weight_decay,
                     backbone_weight_decay,
-                    scale,  # Add scale parameter here
+                    scale,
                     config_details
                 )
                 
@@ -457,7 +458,7 @@ Checkpoint Directory: {checkpoint_dir}"""
                 cleanup_wandb()  # Ensure wandb is cleaned up after error
                 continue
             
-            # Clean up (removed wandb.finish() since it's handled by cleanup_wandb)
+            # Clean up
             torch.cuda.empty_cache()
             
             logging.info(f"Completed combination {idx}/{total_combinations}")
