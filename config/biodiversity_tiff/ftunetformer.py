@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
 from geoseg.losses import *
-from geoseg.datasets.biodiversity_dataset import *
+from geoseg.datasets.biodiversity_tiff_dataset import *
 from geoseg.models.FTUNetFormer import ft_unetformer
 from tools.utils import Lookahead
 from tools.utils import process_model_params
@@ -18,7 +18,7 @@ num_classes = 6
 classes = CLASSES
 
 weights_name = "ftunetformer-512-crop-ms-e45"
-weights_path = "model_weights/potsdam/{}".format(weights_name)
+weights_path = "model_weights/biodiversity_tiff/{}".format(weights_name)
 test_weights_name = "ftunetformer-512-crop-ms-e45"
 log_name = 'potsdam/{}'.format(weights_name)
 monitor = 'val_F1'
@@ -41,11 +41,11 @@ use_aux_loss = False
 
 # define the dataloader
 
-train_dataset = BiodiversityTrainDataset(data_root='data/Biodiversity/train', mode='train',
+train_dataset = BiodiversityTiffTrainDataset(data_root='data/Biodiversity_tiff/train', mode='train',
                                mosaic_ratio=0.25, transform=train_aug)
 
-val_dataset = biodiversity_val_dataset(transform=val_aug)
-test_dataset = BiodiversityTestDataset(data_root='data/Biodiversity/test',
+val_dataset = biodiversity_tiff_val_dataset(transform=val_aug)
+test_dataset = BiodiversityTiffTestDataset(data_root='data/Biodiversity_tiff/test',
                               transform=val_aug)
 
 train_loader = DataLoader(dataset=train_dataset,

@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
 from geoseg.losses import *
-from geoseg.datasets.biodiversity_dataset import *
+from geoseg.datasets.biodiversity_tiff_dataset import *
 from geoseg.models.DCSwin import dcswin_base
 from tools.utils import Lookahead
 from tools.utils import process_model_params
@@ -18,7 +18,7 @@ num_classes = 6
 classes = CLASSES
 
 weights_name = "dcswin-base-512crop-ms-epoch30"
-weights_path = "model_weights/biodiversity/{}".format(weights_name)  # do not change
+weights_path = "model_weights/biodiversity_tiff/{}".format(weights_name)  # do not change
 test_weights_name = "dcswin-base-512crop-ms-epoch30"  # if save_top_k=3, there are v1,v2 model weights, i.e.xxx-v1, xxx-v2
 log_name = 'biodiversity/{}'.format(weights_name)  # do not change
 monitor = 'val_mIoU'  # monitor metric, support val_mIoU, val_F1, val_OA
@@ -41,11 +41,11 @@ use_aux_loss = False  # use auxiliary loss, default False
 
 # define the dataloader
 
-train_dataset = BiodiversityTrainDataset(transform=train_aug, data_root='data/Biodiversity/Train')
+train_dataset = BiodiversityTiffTrainDataset(transform=train_aug, data_root='data/Biodiversity_tiff/Train')
 
-val_dataset = biodiversity_val_dataset
+val_dataset = biodiversity_tiff_val_dataset
 
-test_dataset = BiodiversityTestDataset()
+test_dataset = BiodiversityTiffTestDataset()
 
 train_loader = DataLoader(dataset=train_dataset,
                           batch_size=train_batch_size,

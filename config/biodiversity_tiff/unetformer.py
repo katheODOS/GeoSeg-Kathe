@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
 from geoseg.losses import *
-from geoseg.datasets.biodiversity_dataset import *
+from geoseg.datasets.biodiversity_tiff_dataset import *
 from geoseg.models.UNetFormer import UNetFormer
 from tools.utils import Lookahead
 from tools.utils import process_model_params
@@ -18,9 +18,9 @@ num_classes = 6
 classes = CLASSES
 
 weights_name = "unetformer-r18-512crop-ms-epoch30-rep"
-weights_path = "model_weights/biodiversity/{}".format(weights_name)
+weights_path = "model_weights/biodiversity_tiff/{}".format(weights_name)
 test_weights_name = "last"
-log_name = 'biodiversity/{}'.format(weights_name)
+log_name = 'biodiversity_tiff/{}'.format(weights_name)
 monitor = 'val_mIoU'
 monitor_mode = 'max'
 save_top_k = 1
@@ -57,11 +57,14 @@ def train_aug(img, mask):
     return img, mask
 
 
-train_dataset = BiodiversityTrainDataset(transform=train_aug, data_root='data/biodiversity/Train')
+train_dataset = BiodiversityTiffTrainDataset(transform=train_aug, data_root='data/Biodiversity_tiff/train')
 
-val_dataset = biodiversity_val_dataset
+val_dataset = BiodiversityTiffTrainDataset(
+    data_root='data/Biodiversity_tiff/Val',
+    transform=val_aug,
+    mosaic_ratio=0.0)
 
-test_dataset = BiodiversityTestDataset()
+test_dataset = BiodiversityTiffTestDataset()
 
 train_loader = DataLoader(dataset=train_dataset,
                           batch_size=train_batch_size,
