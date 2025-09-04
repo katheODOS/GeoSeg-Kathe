@@ -1,3 +1,6 @@
 *.png
 ../data/
 __pycache__/
+geoseg/datasets/__pycache__/
+geoseg/models/__pycache__/
+geoseg/losses/__pycache__/

@@ -5,6 +5,7 @@ from geoseg.models.DCSwin import dcswin_base
 from tools.utils import Lookahead
 from tools.utils import process_model_params
 
+
 # training hparam
 max_epoch = 30
 ignore_index = 0
