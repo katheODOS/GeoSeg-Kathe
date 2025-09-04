@@ -57,7 +57,7 @@ def train_aug(img, mask):
     return img, mask
 
 
-train_dataset = BiodiversityTiffTrainDataset(transform=train_aug, data_root='data/Biodiversity_tiff/train')
+train_dataset = BiodiversityTiffTrainDataset(transform=train_aug, data_root='data/Biodiversity_tiff/Train')
 
 val_dataset = BiodiversityTiffTrainDataset(
     data_root='data/Biodiversity_tiff/Val',
