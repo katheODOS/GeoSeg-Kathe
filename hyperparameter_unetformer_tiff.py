@@ -9,7 +9,7 @@ import numpy as np
 import albumentations as albu  # Added missing import
 from torch.utils.data import DataLoader
 from geoseg.losses import *
-from geoseg.datasets.biodiversity_dataset import *
+from geoseg.datasets.biodiversity_tiff_dataset import *
 from geoseg.models.UNetFormer import UNetFormer
 from tools.utils import Lookahead
 from tools.utils import process_model_params
@@ -24,25 +24,24 @@ from tools.metric import Evaluator
 num_classes = 6
 max_epoch = 30
 
-# Hyperparameter configurations
-LR = [5e-4, 2e-4, 8e-5, 3e-5]  # Base learning rates
-BACKBONE_LR = [1e-4, 5e-5, 2e-5, 1e-5]  # Backbone learning rates
-BATCH_SIZES = [8, 16]
+LR = [4e-4, 5e-4, 6e-4]
+BACKBONE_LR = [4e-5, 5e-5, 6e-5]
+BATCH_SIZES = [16]
 EPOCHS = [30]
 WEIGHT_DECAYS = [1e-2]
 BACKBONE_WEIGHT_DECAYS = [1e-2]
-SCALE = [0.75, 1.0]
+SCALE = [1.0]
 
 # Dataset configurations with path mappings (following hyperparameter_tuning.py format)
 DATASETS = {
-    'biodiversity': {'name': 'Biodiversity Dataset', 'code': 'biodiversity', 'path': 'Biodiversity/Train'},
+    'biodiversity': {'name': 'Biodiversity Dataset Tiff', 'code': 'biodiversity_tiff', 'path': 'Biodiversity_tiff/Train'},
 }
 
 def setup_checkpoint_dir(dataset_code, lr, backbone_lr, wd, backbone_wd, epochs, batch_size, scale):
     """Create and return checkpoint directory for specific configuration"""
     # Following hyperparameter_tuning.py naming convention
     dir_name = f"{dataset_code}L{lr:.0e}BL{backbone_lr:.0e}W{wd:.0e}BW{backbone_wd:.0e}B{batch_size}E{epochs}S{scale:.2f}"
-    checkpoint_dir = Path('C:/Users/Admin/anaconda3/envs/GeoSeg-Kathe/model_weights/biodiversity') / dir_name
+    checkpoint_dir = Path('C:/Users/Admin/anaconda3/envs/GeoSeg-Kathe/model_weights/biodiversity_tiff') / dir_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     return checkpoint_dir
 
@@ -126,7 +125,7 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
             sys.stdout.write("="*80 + "\n\n")
             
             # Setup train dataset and loader
-            train_dataset = BiodiversityTrainDataset(
+            train_dataset = BiodiversityTiffTrainDataset(
                 transform=train_aug,
                 data_root=dataset_path
             )
@@ -141,7 +140,7 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
             )
             
             # Setup validation dataset and loader
-            val_dataset = biodiversity_val_dataset
+            val_dataset = biodiversity_tiff_val_dataset
             val_loader = DataLoader(
                 dataset=val_dataset,
                 batch_size=batch_size,  # Using same batch size as training
