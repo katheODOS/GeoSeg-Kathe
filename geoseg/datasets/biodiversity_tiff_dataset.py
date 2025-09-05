@@ -204,7 +204,11 @@ class BiodiversityTiffTestDataset(Dataset):
         
         img = torch.from_numpy(img).permute(2, 0, 1).float()
         img_id = self.img_ids[index]
-        results = {'img': img, 'img_id': img_id}
+        results = {
+            'img': img, 
+            'img_id': img_id,
+            'img_type': 'tif'
+        }
         return results
 
     def __len__(self):
