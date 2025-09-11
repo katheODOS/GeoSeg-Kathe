@@ -43,7 +43,7 @@ def extract_metrics(output_file):
 
 def process_metrics():
     """Process all biodiversity model folders and create sorted metric files"""
-    base_dir = Path('C:/Users/Admin/anaconda3/envs/GeoSeg-Kathe/model_weights/biodiversity')
+    base_dir = Path('C:/Users/Admin/anaconda3/envs/GeoSeg-Kathe/model_weights/biodiversity_tiff')
     metrics_dict = {
         'mIoU': {},
         'F1': {},

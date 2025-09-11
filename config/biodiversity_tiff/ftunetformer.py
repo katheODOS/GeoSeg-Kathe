@@ -41,12 +41,13 @@ use_aux_loss = False
 
 # define the dataloader
 
-train_dataset = BiodiversityTiffTrainDataset(data_root='data/Biodiversity_tiff/train', mode='train',
+train_dataset = BiodiversityTiffTrainDataset(data_root='data/Biodiversity_tiff/train',
                                mosaic_ratio=0.25, transform=train_aug)
 
-val_dataset = biodiversity_tiff_val_dataset(transform=val_aug)
-test_dataset = BiodiversityTiffTestDataset(data_root='data/Biodiversity_tiff/test',
-                              transform=val_aug)
+val_dataset = BiodiversityTiffTrainDataset(data_root='data/Biodiversity_tiff/val',
+                             mosaic_ratio=0.0, transform=val_aug)
+
+test_dataset = BiodiversityTiffTestDataset(data_root='data/Biodiversity_tiff/test')
 
 train_loader = DataLoader(dataset=train_dataset,
                           batch_size=train_batch_size,

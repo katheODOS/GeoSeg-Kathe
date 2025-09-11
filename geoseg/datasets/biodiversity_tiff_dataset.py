@@ -194,13 +194,16 @@ class BiodiversityTiffTestDataset(Dataset):
         self.img_suffix = img_suffix
         self.img_size = img_size
         self.img_ids = self.get_img_ids(self.data_root, self.img_dir)
+        self.transform = get_val_transform()  # Added default transform
 
     def __getitem__(self, index):
         img = self.load_img(index)
-        
         img_array = np.array(img)
-        aug = albu.Normalize()(image=img_array)
-        img = aug['image']
+        
+        # Apply transform if available
+        if self.transform:
+            aug = self.transform(image=img_array)
+            img = aug['image']
         
         img = torch.from_numpy(img).permute(2, 0, 1).float()
         img_id = self.img_ids[index]

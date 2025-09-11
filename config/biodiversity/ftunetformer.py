@@ -34,8 +34,8 @@ resume_ckpt_path = None  # whether continue training with the checkpoint, defaul
 net = ft_unetformer(num_classes=num_classes, decoder_channels=256)
 
 # define the loss
-loss = JointLoss(SoftCrossEntropyLoss(smooth_factor=0.05, ignore_index=ignore_index),
-                 DiceLoss(smooth=0.05, ignore_index=ignore_index), 1.0, 1.0)
+loss = JointLoss(SoftCrossEntropyLoss(smooth_factor=0.05, ignore_index=0),
+                 DiceLoss(smooth=0.05, ignore_index=0), 1.0, 1.0)
 
 use_aux_loss = False
 

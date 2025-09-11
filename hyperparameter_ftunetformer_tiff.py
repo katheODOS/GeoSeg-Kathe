@@ -6,11 +6,11 @@ from itertools import product
 import torch
 import io
 import numpy as np
-import albumentations as albu  # Added missing import
+import albumentations as albu
 from torch.utils.data import DataLoader
 from geoseg.losses import *
 from geoseg.datasets.biodiversity_tiff_dataset import *
-from geoseg.models.UNetFormer import UNetFormer
+from geoseg.models.FTUNetFormer import ft_unetformer
 from tools.utils import Lookahead
 from tools.utils import process_model_params
 from contextlib import redirect_stdout
@@ -29,7 +29,7 @@ LR = [4e-4, 5e-4, 6e-4]
 BACKBONE_LR = [4e-5, 5e-5, 6e-5]
 BATCH_SIZES = [16]
 EPOCHS = [30]
-WEIGHT_DECAYS = [1e-2]
+WEIGHT_DECAYS = [1e-2, 1e-1]
 BACKBONE_WEIGHT_DECAYS = [1e-2]
 SCALE = [1.0]
 
@@ -66,7 +66,7 @@ def setup_checkpoint_dir(dataset_code, lr, backbone_lr, wd, backbone_wd, epochs,
     """Create and return checkpoint directory for specific configuration"""
     # Following hyperparameter_tuning.py naming convention
     dir_name = f"{dataset_code}L{lr:.0e}BL{backbone_lr:.0e}W{wd:.0e}BW{backbone_wd:.0e}B{batch_size}E{epochs}S{scale:.2f}"
-    checkpoint_dir = Path('C:/Users/Admin/anaconda3/envs/GeoSeg-Kathe/model_weights/biodiversity_tiff') / dir_name
+    checkpoint_dir = Path('C:/Users/Admin/anaconda3/envs/GeoSeg-Kathe/model_weights/biodiversity_tiff_ftunetformer') / dir_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     return checkpoint_dir
 
@@ -123,19 +123,19 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
     """Run training with specific configuration and capture output"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    # Initialize UNetFormer model
-    model = UNetFormer(
+    # Initialize FTUNetFormer model
+    model = ft_unetformer(
         num_classes=num_classes,
-        decode_channels=64,
-        dropout=0.1,
-        backbone_name='swsl_resnet18',
-        pretrained=True
+        decoder_channels=256,
+        pretrained=True,
+        freeze_stages=-1
     )
     model = model.to(device=device)
     
-    # Use UnetFormerLoss as defined in the original config
-    loss_fn = UnetFormerLoss(ignore_index=0)
-    use_aux_loss = True
+    # Use loss as defined in the original config
+    loss_fn = JointLoss(SoftCrossEntropyLoss(smooth_factor=0.05, ignore_index=0),
+                       DiceLoss(smooth=0.05, ignore_index=0), 1.0, 1.0)
+    use_aux_loss = False
     
     # Initialize checkpoint tracker
     best_tracker = BestCheckpointTracker(keep_top_k=2)
@@ -195,7 +195,7 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
             Backbone Weight Decay: {backbone_weight_decay}
             Scale: {scale}
             Checkpoint Directory: {checkpoint_dir}
-            Model: UNetFormer
+            Model: FTUNetFormer
             """
             with open(checkpoint_dir / 'config.txt', 'w') as f:
                 f.write(config_log)
