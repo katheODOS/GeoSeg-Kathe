@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, repeat
+import math
 
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 import timm
@@ -355,15 +356,110 @@ class UNetFormer(nn.Module):
                  backbone_name='swsl_resnet18',
                  pretrained=True,
                  window_size=8,
-                 num_classes=6
+                 num_classes=6,
+                 in_channels=4
                  ):
         super().__init__()
-
-        self.backbone = timm.create_model(backbone_name, features_only=True, output_stride=32,
-                                          out_indices=(1, 2, 3, 4), pretrained=pretrained)
+        
+        # Create backbone - ALWAYS create with 3 channels first if pretrained
+        self.backbone = timm.create_model(
+            backbone_name, 
+            features_only=True, 
+            output_stride=32,
+            out_indices=(1, 2, 3, 4), 
+            pretrained=pretrained,
+            in_chans=3  # Always use 3 for pretrained models
+        )
+        
+        # Adapt first conv layer if needed
+        if in_channels != 3:
+            self._adapt_backbone_input_conv(in_channels)
+        
         encoder_channels = self.backbone.feature_info.channels()
-
         self.decoder = Decoder(encoder_channels, decode_channels, dropout, window_size, num_classes)
+    
+    def adapt_input_conv(self, in_chans, conv_weight):
+        """Adapt pretrained RGB weights to different number of input channels"""
+        conv_type = conv_weight.dtype
+        conv_weight = conv_weight.float()
+        O, I, J, K = conv_weight.shape
+        
+        if in_chans == 1:
+            conv_weight = conv_weight.sum(dim=1, keepdim=True)
+        elif in_chans != 3:
+            if in_chans < 3:
+                conv_weight = conv_weight[:, :in_chans, :, :]
+            else:
+                repeat = int(math.ceil(in_chans / 3))
+                conv_weight = conv_weight.repeat(1, repeat, 1, 1)[:, :in_chans, :, :]
+                conv_weight *= (3 / in_chans)
+        
+        return conv_weight.to(conv_type)
+    
+    def _adapt_backbone_input_conv(self, in_channels):
+        """Find and adapt the first conv layer in the backbone"""
+        first_conv = None
+        conv_name = None
+        
+        # Try different locations for the first conv layer
+        if hasattr(self.backbone, 'conv1'):
+            first_conv = self.backbone.conv1
+            conv_name = 'conv1'
+        elif hasattr(self.backbone, 'stem') and hasattr(self.backbone.stem, 'conv'):
+            first_conv = self.backbone.stem.conv
+            conv_name = 'stem.conv'
+        elif hasattr(self.backbone, 'patch_embed') and hasattr(self.backbone.patch_embed, 'proj'):
+            first_conv = self.backbone.patch_embed.proj
+            conv_name = 'patch_embed.proj'
+        else:
+            # Search through all modules to find the first Conv2d
+            for name, module in self.backbone.named_modules():
+                if isinstance(module, nn.Conv2d):
+                    first_conv = module
+                    conv_name = name
+                    break
+        
+        if first_conv is None:
+            raise ValueError(f"Could not find first conv layer in backbone {type(self.backbone)}")
+        
+        # Print debug info
+        print(f"Found first conv layer: {conv_name} with shape {first_conv.weight.shape}")
+        
+        # Create new conv layer with correct input channels
+        old_weights = first_conv.weight.data
+        new_weights = self.adapt_input_conv(in_channels, old_weights)
+        
+        new_conv = nn.Conv2d(
+            in_channels, 
+            first_conv.out_channels,
+            kernel_size=first_conv.kernel_size,
+            stride=first_conv.stride,
+            padding=first_conv.padding,
+            bias=first_conv.bias is not None
+        )
+        
+        new_conv.weight.data = new_weights
+        if first_conv.bias is not None:
+            new_conv.bias.data = first_conv.bias.data
+        
+        # Replace the conv layer in the backbone
+        if conv_name == 'conv1':
+            self.backbone.conv1 = new_conv
+        elif conv_name == 'stem.conv':
+            self.backbone.stem.conv = new_conv
+        elif conv_name == 'patch_embed.proj':
+            self.backbone.patch_embed.proj = new_conv
+        else:
+            # For nested paths like 'stem.0.conv'
+            path_parts = conv_name.split('.')
+            parent = self.backbone
+            for part in path_parts[:-1]:
+                if part.isdigit():
+                    parent = parent[int(part)]
+                else:
+                    parent = getattr(parent, part)
+            setattr(parent, path_parts[-1], new_conv)
+            print(f"Successfully adapted {conv_name} from {old_weights.shape[1]} to {in_channels} input channels")
 
     def forward(self, x):
         h, w = x.size()[-2:]

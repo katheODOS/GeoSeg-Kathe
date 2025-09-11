@@ -4,6 +4,7 @@ from geoseg.datasets.biodiversity_tiff_dataset import *
 from geoseg.models.UNetFormer import UNetFormer
 from tools.utils import Lookahead
 from tools.utils import process_model_params
+import math
 
 # training hparam
 max_epoch = 30 # originally 30
@@ -29,9 +30,10 @@ check_val_every_n_epoch = 1
 pretrained_ckpt_path = None # the path for the pretrained model weight
 gpus = 'auto'  # default or gpu ids:[0] or gpu nums: 2, more setting can refer to pytorch_lightning
 resume_ckpt_path = None  # whether continue training with the checkpoint, default None
+in_channels = 4  # for 4 band imagery, change to 8 for 8-band
 
 #  define the network
-net = UNetFormer(num_classes=num_classes)
+net = UNetFormer(num_classes=num_classes, in_channels=in_channels)
 
 # define the loss
 loss = UnetFormerLoss(ignore_index=ignore_index)
@@ -42,10 +44,12 @@ use_aux_loss = True
 def get_training_transform():
     train_transform = [
         albu.HorizontalFlip(p=0.5),
-        albu.Normalize()
+        albu.Normalize(
+            mean=[0.5, 0.5, 0.5, 0.5],  # 4 channels
+            std=[0.5, 0.5, 0.5, 0.5]     # 4 channels
+        )
     ]
     return albu.Compose(train_transform)
-
 
 def train_aug(img, mask):
     crop_aug = Compose([RandomScale(scale_list=[0.75, 1.0, 1.25, 1.5], mode='value'),
@@ -57,10 +61,10 @@ def train_aug(img, mask):
     return img, mask
 
 
-train_dataset = BiodiversityTiffTrainDataset(transform=train_aug, data_root='data/Biodiversity_tiff/Train')
+train_dataset = BiodiversityTiffTrainDataset(transform=train_aug, data_root='../data/Biodiversity_tiff/Train')
 
 val_dataset = BiodiversityTiffTrainDataset(
-    data_root='data/Biodiversity_tiff/Val',
+    data_root='../data/Biodiversity_tiff/Val',
     transform=val_aug,
     mosaic_ratio=0.0)
 

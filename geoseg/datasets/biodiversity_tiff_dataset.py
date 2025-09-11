@@ -59,7 +59,7 @@ def val_aug(img, mask):
 
 
 class BiodiversityTiffTrainDataset(Dataset):
-    def __init__(self, data_root='data/Biodiversity_tiff/Train',
+    def __init__(self, data_root='../data/Biodiversity_tiff/Train',
                  img_dir='images', mask_dir='masks',
                  img_suffix='.tif', mask_suffix='.png',
                  transform=train_aug, mosaic_ratio=0.25,
@@ -152,14 +152,10 @@ class BiodiversityTiffTrainDataset(Dataset):
                 
                 # Normalize the image
                 img_data = self.normalize_image(img_data)
-                
-                # Convert to 0-255 range and uint8
+                  # Convert to 0-255 range and uint8
                 img_data = (img_data * 255).clip(0, 255).astype(np.uint8)
                 
-                # Handle 4-band to 3-band conversion (take first 3 bands)
-                if img_data.shape[2] == 4:
-                    img_data = img_data[:, :, :3]  # Take RGB channels
-                
+                # Keep all 4 channels for 4-channel model
                 img = Image.fromarray(img_data)
                 
         except Exception as e:
@@ -186,7 +182,7 @@ class BiodiversityTiffTrainDataset(Dataset):
 
 
 class BiodiversityTiffTestDataset(Dataset):
-    def __init__(self, data_root='data/Biodiversity_tiff/Test',
+    def __init__(self, data_root='../data/Biodiversity_tiff/Test',
                  img_dir='images', img_suffix='.tif',
                  img_size=ORIGIN_IMG_SIZE):
         self.data_root = data_root
@@ -238,15 +234,11 @@ class BiodiversityTiffTestDataset(Dataset):
                 
                 # Handle NaN values
                 img_data = np.where(np.isnan(img_data), 0, img_data)
-                
-                # Normalize
+                  # Normalize
                 img_data = self.normalize_image(img_data)
                 img_data = (img_data * 255).clip(0, 255).astype(np.uint8)
                 
-                # Convert to 3-band
-                if img_data.shape[2] == 4:
-                    img_data = img_data[:, :, :3]
-                
+                # Keep all 4 channels for 4-channel model
                 return Image.fromarray(img_data)
         except:
             img = Image.open(img_name)
@@ -275,13 +267,17 @@ class BiodiversityTiffTestDataset(Dataset):
 
 # Create validation dataset conditionally
 try:
-    val_path = osp.join('data', 'Biodiversity_tiff', 'Val')
+    val_path = osp.join('../data', 'Biodiversity_tiff', 'Val')
+    abs_val_path = osp.abspath(val_path)
+    print(f"Looking for validation data at: {abs_val_path}")
+    print(f"Path exists: {os.path.exists(val_path)}")
     if os.path.exists(val_path):
         biodiversity_tiff_val_dataset = BiodiversityTiffTrainDataset(
             data_root=val_path,
             mosaic_ratio=0.0,
             transform=val_aug
         )
+        print(f"Successfully created validation dataset with {len(biodiversity_tiff_val_dataset)} samples")
     else:
         print("Warning: Val directory not found, will use Train dataset for validation")
         biodiversity_tiff_val_dataset = None
