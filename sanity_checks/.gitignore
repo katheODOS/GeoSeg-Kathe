@@ -1,0 +1,8 @@
+*.png
+../data/
+__pycache__/
+geoseg/datasets/__pycache__/
+geoseg/models/__pycache__/
+geoseg/losses/__pycache__/
+model_weights/biodiversity_tiff/unetformer4-r18-512crop-ms-epoch30-rep/last.ckpt
+model_weights/biodiversity_tiff/unetformer4-r18-512crop-ms-epoch30-rep/unetformer-r18-512crop-ms-epoch30-rep.ckpt
