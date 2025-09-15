@@ -19,7 +19,7 @@ num_classes = 6
 classes = CLASSES
 
 weights_name = "unetformer-r18-512crop-ms-epoch30-rep"
-weights_path = "model_weights/biodiversity_tiff/{}".format(weights_name)
+weights_path = "../model_weights/biodiversity_tiff_4/{}".format(weights_name)
 test_weights_name = "last"
 log_name = 'biodiversity_tiff/{}'.format(weights_name)
 monitor = 'val_mIoU'
