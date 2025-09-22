@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import ttach as tta
 import multiprocessing.pool as mpp
 import multiprocessing as mp
@@ -67,40 +71,63 @@ def main():
     
     # Load model from the specified checkpoint path instead of config default
     print(f"Loading model from checkpoint: {args.checkpoint_path}")
-    
-    # Try loading with strict=False first to handle key mismatches
     try:
-        model = Supervision_Train.load_from_checkpoint(str(args.checkpoint_path), config=config)
-    except RuntimeError as e:
-        if "Missing key(s) in state_dict" in str(e) or "Unexpected key(s) in state_dict" in str(e):
-            print("Key mismatch detected. Attempting manual state_dict loading...")
-            
-            # Create model manually and load state dict with key mapping
-            model = Supervision_Train(config)
-            
-            # Load checkpoint manually
-            checkpoint = torch.load(str(args.checkpoint_path), map_location='cpu')
-            state_dict = checkpoint['state_dict']
-            
-            # Fix key names - remove 'model.' prefix and replace with 'net.'
-            fixed_state_dict = {}
-            for key, value in state_dict.items():
-                if key.startswith('model.'):
-                    new_key = key.replace('model.', 'net.', 1)
-                    fixed_state_dict[new_key] = value
-                else:
-                    fixed_state_dict[key] = value
-            
-            # Load the fixed state dict
+        # Create model first
+        model = Supervision_Train(config)
+        
+        # Try loading with weights_only=False first
+        try:
+            checkpoint = torch.load(str(args.checkpoint_path), map_location='cpu', weights_only=False)
+        except Exception as e:
+            print(f"Failed to load with weights_only=False: {str(e)}")
             try:
-                model.load_state_dict(fixed_state_dict, strict=False)
-                print("Successfully loaded checkpoint with key mapping")
-            except Exception as load_error:
-                print(f"Failed to load even with key mapping: {load_error}")
-                return
-        else:
-            print(f"Unexpected error loading checkpoint: {e}")
-            return
+                # Try with safe_globals context manager
+                with torch.serialization.safe_globals(['numpy._core.multiarray.scalar']):
+                    checkpoint = torch.load(str(args.checkpoint_path), map_location='cpu')
+            except Exception as e:
+                print(f"Failed to load with safe_globals: {str(e)}")
+                # Last attempt with default settings
+                checkpoint = torch.load(str(args.checkpoint_path), map_location='cpu')
+        
+        if not isinstance(checkpoint, dict):
+            raise ValueError("Checkpoint is not a dictionary")
+            
+        # Try different possible state dict keys
+        state_dict = None
+        for key in ['state_dict', 'model_state', 'model_state_dict', 'net_state_dict']:
+            if key in checkpoint:
+                state_dict = checkpoint[key]
+                print(f"Found state dict under key: {key}")
+                break
+        
+        if state_dict is None:
+            # If no known keys found, check if the checkpoint itself is the state dict
+            if any(k.startswith('net.') or k.startswith('model.') for k in checkpoint.keys()):
+                state_dict = checkpoint
+                print("Using checkpoint directly as state dict")
+            else:
+                raise ValueError("Could not find state dict in checkpoint")
+        
+        # Fix key names if needed
+        fixed_state_dict = {}
+        for key, value in state_dict.items():
+            if key.startswith('model.'):
+                new_key = key.replace('model.', 'net.', 1)
+                fixed_state_dict[new_key] = value
+            else:
+                fixed_state_dict[key] = value
+        
+        # Try loading with both strict and non-strict
+        try:
+            model.load_state_dict(fixed_state_dict, strict=True)
+            print("Successfully loaded checkpoint with strict=True")
+        except Exception:
+            model.load_state_dict(fixed_state_dict, strict=False)
+            print("Successfully loaded checkpoint with strict=False")
+            
+    except Exception as e:
+        print(f"Failed to load model: {str(e)}")
+        return
     
     model.cuda()
     model.eval()
