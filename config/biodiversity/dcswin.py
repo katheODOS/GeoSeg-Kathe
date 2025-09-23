@@ -1,9 +1,10 @@
 from torch.utils.data import DataLoader
 from geoseg.losses import *
-from geoseg.datasets.biodiversity_dataset import *
+from geoseg.datasets.biodiversity_tiff_dataset import *
 from geoseg.models.DCSwin import dcswin_base
 from tools.utils import Lookahead
 from tools.utils import process_model_params
+
 
 # training hparam
 max_epoch = 30
@@ -16,11 +17,12 @@ backbone_lr = 6e-5
 backbone_weight_decay = 0.01
 num_classes = 6
 classes = CLASSES
+in_channels = 4  # Set to 4 for 4-band imagery, change to 8 for 8-band
 
-weights_name = "dcswin-base-512crop-ms-epoch30"
-weights_path = "model_weights/biodiversity/{}".format(weights_name)  # do not change
-test_weights_name = "dcswin-base-512crop-ms-epoch30"  # if save_top_k=3, there are v1,v2 model weights, i.e.xxx-v1, xxx-v2
-log_name = 'biodiversity/{}'.format(weights_name)  # do not change
+weights_name = "dcswin-base-4band-512crop-ms-epoch30"
+weights_path = "model_weights/biodiversity_tiff/{}".format(weights_name)  # do not change
+test_weights_name = "dcswin-base-4band-512crop-ms-epoch30"
+log_name = 'biodiversity_tiff/{}'.format(weights_name)  # do not change
 monitor = 'val_mIoU'  # monitor metric, support val_mIoU, val_F1, val_OA
 monitor_mode = 'max'  # select the max one as the best model
 save_top_k = 1  # save the top k model weights on the validation set
@@ -31,7 +33,12 @@ gpus = 'auto'  # default or gpu ids:[0] or gpu nums: 2, more setting can refer t
 resume_ckpt_path = None  # whether continue training with the checkpoint, default None
 
 #  define the network, use pretrained backbone, the weight path of backbone
-net = dcswin_base(num_classes=num_classes, pretrained=True, weight_path='pretrain_weights/stseg_base.pth')
+net = dcswin_base(
+    num_classes=num_classes, 
+    pretrained=True, 
+    weight_path='pretrain_weights/stseg_base.pth',
+    in_chans=in_channels  # Add support for multispectral input
+)
 
 # define the loss
 loss = JointLoss(SoftCrossEntropyLoss(smooth_factor=0.05, ignore_index=ignore_index),
@@ -40,12 +47,9 @@ loss = JointLoss(SoftCrossEntropyLoss(smooth_factor=0.05, ignore_index=ignore_in
 use_aux_loss = False  # use auxiliary loss, default False
 
 # define the dataloader
-
-train_dataset = BiodiversityTrainDataset(transform=train_aug, data_root='data/Biodiversity/Train')
-
-val_dataset = biodiversity_val_dataset
-
-test_dataset = BiodiversityTestDataset()
+train_dataset = BiodiversityTiffTrainDataset(transform=train_aug, data_root='data/Biodiversity_tiff/Train')
+val_dataset = biodiversity_tiff_val_dataset
+test_dataset = BiodiversityTiffTestDataset()
 
 train_loader = DataLoader(dataset=train_dataset,
                           batch_size=train_batch_size,
@@ -67,4 +71,3 @@ net_params = process_model_params(net, layerwise_params=layerwise_params)
 base_optimizer = torch.optim.AdamW(net_params, lr=lr, weight_decay=weight_decay)
 optimizer = Lookahead(base_optimizer)
 lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max_epoch, eta_min=1e-6)
-
