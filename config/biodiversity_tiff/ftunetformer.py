@@ -18,9 +18,9 @@ num_classes = 6
 classes = CLASSES
 
 weights_name = "ftunetformer-512-crop-ms-e45"
-weights_path = "model_weights/biodiversity_tiff/{}".format(weights_name)
-test_weights_name = "ftunetformer-512-crop-ms-e45"
-log_name = 'potsdam/{}'.format(weights_name)
+weights_path = "model_weights/biodiversity_tiff4/{}".format(weights_name)
+test_weights_name = "ftunetformer-4band-e45-defaultparams"
+log_name = 'ftunetformer/{}'.format(weights_name)
 monitor = 'val_F1'
 monitor_mode = 'max'
 save_top_k = 1
@@ -31,7 +31,12 @@ gpus = 'auto'  # default or gpu ids:[0] or gpu nums: 2, more setting can refer t
 resume_ckpt_path = None  # whether continue training with the checkpoint, default None
 
 #  define the network
-net = ft_unetformer(num_classes=num_classes, decoder_channels=256)
+net = ft_unetformer(
+    num_classes=num_classes, 
+    decoder_channels=256,
+    in_channels=4,  # ADD THIS LINE FOR 4-BAND SUPPORT
+    pretrained=True,
+    freeze_stages=-1)
 
 # define the loss
 loss = JointLoss(SoftCrossEntropyLoss(smooth_factor=0.05, ignore_index=ignore_index),
@@ -41,13 +46,13 @@ use_aux_loss = False
 
 # define the dataloader
 
-train_dataset = BiodiversityTiffTrainDataset(data_root='data/Biodiversity_tiff/train',
+train_dataset = BiodiversityTiffTrainDataset(data_root='../data/Biodiversity_tiff/Train',
                                mosaic_ratio=0.25, transform=train_aug)
 
-val_dataset = BiodiversityTiffTrainDataset(data_root='data/Biodiversity_tiff/val',
+val_dataset = BiodiversityTiffTrainDataset(data_root='../data/Biodiversity_tiff/Val',
                              mosaic_ratio=0.0, transform=val_aug)
 
-test_dataset = BiodiversityTiffTestDataset(data_root='data/Biodiversity_tiff/test')
+test_dataset = BiodiversityTiffTestDataset(data_root='../data/Biodiversity_tiff/Test')
 
 train_loader = DataLoader(dataset=train_dataset,
                           batch_size=train_batch_size,

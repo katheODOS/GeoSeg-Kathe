@@ -931,7 +931,6 @@ class Decoder(nn.Module):
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
-
 class FTUNetFormer(nn.Module):
 
     def __init__(self,
@@ -942,11 +941,18 @@ class FTUNetFormer(nn.Module):
                  num_heads=(3, 6, 12, 24),
                  freeze_stages=-1,
                  window_size=8,
-                 num_classes=6
+                 num_classes=6,
+                 in_channels=3  # ADD THIS PARAMETER
                  ):
         super().__init__()
 
-        self.backbone = SwinTransformer(embed_dim=embed_dim, depths=depths, num_heads=num_heads, frozen_stages=freeze_stages)
+        self.backbone = SwinTransformer(
+            embed_dim=embed_dim, 
+            depths=depths, 
+            num_heads=num_heads, 
+            frozen_stages=freeze_stages,
+            in_chans=in_channels  # PASS in_channels to backbone
+        )
         encoder_channels = [embed_dim, embed_dim*2, embed_dim*4, embed_dim*8]
         self.decoder = Decoder(encoder_channels, decode_channels, dropout, window_size, num_classes)
 
@@ -956,20 +962,33 @@ class FTUNetFormer(nn.Module):
         x = self.decoder(res1, res2, res3, res4, h, w)
         return x
 
-
 def ft_unetformer(pretrained=True, num_classes=6, freeze_stages=-1, decoder_channels=256,
-                  weight_path='pretrain_weights/stseg_base.pth'):
-    model = FTUNetFormer(num_classes=num_classes,
-                         freeze_stages=freeze_stages,
-                         embed_dim=128,
-                         depths=(2, 2, 18, 2),
-                         num_heads=(4, 8, 16, 32),
-                         decode_channels=decoder_channels)
+                  in_channels=3,  # ADD THIS PARAMETER
+                  weight_path='../pretrain_weights/stseg_base.pth'):
+    model = FTUNetFormer(
+        num_classes=num_classes,
+        freeze_stages=freeze_stages,
+        embed_dim=128,
+        depths=(2, 2, 18, 2),
+        num_heads=(4, 8, 16, 32),
+        decode_channels=decoder_channels,
+        in_channels=in_channels  # ADD THIS LINE
+    )
 
     if pretrained and weight_path is not None:
         old_dict = torch.load(weight_path)['state_dict']
         model_dict = model.state_dict()
-        old_dict = {k: v for k, v in old_dict.items() if (k in model_dict)}
+        
+        # Filter out keys that don't match (including input conv layer if channels differ)
+        if in_channels != 3:
+            # Remove the patch embedding projection layer from pretrained weights
+            old_dict = {k: v for k, v in old_dict.items() 
+                       if k in model_dict and not k.startswith('backbone.patch_embed.proj')}
+            print(f"Adapting FTUNetFormer input from 3 to {in_channels} channels")
+        else:
+            old_dict = {k: v for k, v in old_dict.items() if k in model_dict}
+            
         model_dict.update(old_dict)
         model.load_state_dict(model_dict)
+    
     return model

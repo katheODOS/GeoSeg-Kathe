@@ -128,8 +128,9 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
         num_classes=num_classes,
         decoder_channels=256,
         pretrained=True,
-        freeze_stages=-1
-    )
+        freeze_stages=-1,
+        in_channels=4  # ADD THIS LINE FOR 4-BAND SUPPORT
+)
     model = model.to(device=device)
     
     # Use loss as defined in the original config
