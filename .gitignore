@@ -23,3 +23,10 @@ model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/last.ckpt
 geoseg/models/__pycache__/DCSwin.cpython-311.pyc
 geoseg/models/__pycache__/UNetFormer.cpython-311.pyc
 lightning_logs/ftunetformer/ftunetformer-512-crop-ms-e45/version_0/metrics.csv
+model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/ftunetformer-512-crop-ms-e45-v1.ckpt
+model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/last-v1.ckpt
+model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/results/class_f1_scores.png
+model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/results/class_iou_scores.png
+model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/results/confusion_matrix.png
+model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/results/evaluation_report.txt
+lightning_logs/ftunetformer/ftunetformer-512-crop-ms-e45/version_1/metrics.csv

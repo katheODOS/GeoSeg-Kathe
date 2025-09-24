@@ -30,18 +30,31 @@ CLASS_NAMES = ['Forest land', 'Grassland', 'Cropland', 'Settlement', 'Seminatura
 
 def evaluate_model(model_path, device='cuda'):
     """Load and evaluate a model checkpoint"""
-    # Load checkpoint
-    checkpoint = torch.load(model_path, map_location=device)
+    # Import required PyTorch serialization utilities
+    from torch.serialization import safe_globals, add_safe_globals
+    import numpy._core.multiarray as multiarray
+
+    # Add numpy scalar to safe globals
+    add_safe_globals([multiarray.scalar])
+
+    # Load checkpoint with safe_globals context
+    try:
+        with safe_globals():
+            checkpoint = torch.load(model_path, map_location=device, weights_only=True)
+    except Exception as e:
+        print(f"First loading attempt failed, trying alternative loading method...")
+        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     
     # Initialize appropriate model based on checkpoint path
     if 'dcswin' in str(model_path).lower():
         model = dcswin_base(
             num_classes=6,
             pretrained=True,
+            in_channels=4,
             weight_path='pretrain_weights/stseg_base.pth'
         )
     else:
-        model = ft_unetformer(num_classes=6)
+        model = ft_unetformer(num_classes=6, in_channels=4)
     
     # Load state dict from Lightning checkpoint
     if isinstance(checkpoint, dict):
@@ -235,7 +248,7 @@ def main():
     logging.basicConfig(level=logging.INFO)
     
     # Base directory containing all model checkpoints
-    base_dir = Path(r'C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\GeoSeg-Kathe\model_weights\biodiversity_tiff4')
+    base_dir = Path(r'C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\model_weights\biodiversity_tiff_ftunetformer')
     
     for model_dir in base_dir.iterdir():
         if not model_dir.is_dir():
