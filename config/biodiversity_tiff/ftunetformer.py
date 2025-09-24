@@ -19,7 +19,7 @@ classes = CLASSES
 
 weights_name = "ftunetformer-512-crop-ms-e45"
 weights_path = "model_weights/biodiversity_tiff4/{}".format(weights_name)
-test_weights_name = "ftunetformer-4band-e45-defaultparams"
+test_weights_name = "ftunetformer-4band-e45-defaultparams-extradata"
 log_name = 'ftunetformer/{}'.format(weights_name)
 monitor = 'val_F1'
 monitor_mode = 'max'

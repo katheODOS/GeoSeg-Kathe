@@ -18,11 +18,12 @@ from tqdm import tqdm
 from sklearn.metrics import confusion_matrix
 import torch.nn as nn
 from geoseg.losses import *
-from geoseg.datasets.biodiversity_dataset import *
+from geoseg.datasets.biodiversity_tiff_dataset import *
 from torch.utils.data import DataLoader
 from tools.metric import Evaluator
 from geoseg.models.UNetFormer import UNetFormer
 from geoseg.models.DCSwin import dcswin_base
+from geoseg.models.FTUNetFormer import ft_unetformer
 
 # Class names for biodiversity dataset
 CLASS_NAMES = ['Forest land', 'Grassland', 'Cropland', 'Settlement', 'Seminatural Grassland']
@@ -40,7 +41,7 @@ def evaluate_model(model_path, device='cuda'):
             weight_path='pretrain_weights/stseg_base.pth'
         )
     else:
-        model = UNetFormer(num_classes=6)
+        model = ft_unetformer(num_classes=6)
     
     # Load state dict from Lightning checkpoint
     if isinstance(checkpoint, dict):
@@ -56,7 +57,7 @@ def evaluate_model(model_path, device='cuda'):
     model.eval()
     
     # Setup validation dataset and loader
-    val_dataset = biodiversity_val_dataset
+    val_dataset = biodiversity_tiff_val_dataset
     val_loader = DataLoader(
         dataset=val_dataset,
         batch_size=1,

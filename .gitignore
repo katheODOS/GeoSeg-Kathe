@@ -18,3 +18,8 @@ geoseg/models/__pycache__/UNetFormer.cpython-311.pyc
 model_weights/biodiversity_tiff/unetformer4-r18-512crop-ms-epoch30-rep/last.ckpt
 model_weights/biodiversity_tiff/unetformer4-r18-512crop-ms-epoch30-rep/unetformer-r18-512crop-ms-epoch30-rep.ckpt
 geoseg/models/__pycache__/UNetFormer.cpython-311.pyc
+model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/ftunetformer-512-crop-ms-e45.ckpt
+model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/last.ckpt
+geoseg/models/__pycache__/DCSwin.cpython-311.pyc
+geoseg/models/__pycache__/UNetFormer.cpython-311.pyc
+lightning_logs/ftunetformer/ftunetformer-512-crop-ms-e45/version_0/metrics.csv
