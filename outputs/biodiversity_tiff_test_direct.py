@@ -1,9 +1,20 @@
-
 import sys
 import os
 
 # Add the parent directory to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# FIX PYTORCH 2.6+ LOADING ISSUES FIRST
+import torch
+from torch.serialization import safe_globals, add_safe_globals
+import numpy as np
+try:
+    import numpy._core.multiarray as multiarray
+    add_safe_globals([multiarray.scalar, np.dtype, np.float64])
+    print("✓ Fixed PyTorch 2.6+ loading compatibility")
+except Exception as e:
+    print(f"Warning: Could not fix PyTorch loading: {e}")
+
 import ttach as tta
 import multiprocessing.pool as mpp
 import multiprocessing as mp
@@ -13,8 +24,8 @@ import argparse
 from pathlib import Path
 import cv2
 import numpy as np
-import torch
 from geoseg.datasets.biodiversity_tiff_dataset import BiodiversityTiffTestDataset
+from tools.cfg import py2cfg
 
 from torch import nn
 from torch.utils.data import DataLoader
@@ -31,8 +42,6 @@ def label2rgb(mask):
     mask_rgb[np.all(mask_convert == 3, axis=0)] = [242, 180, 92] #cropland
     mask_rgb[np.all(mask_convert == 4, axis=0)] = [116, 116, 116] #settlement
     mask_rgb[np.all(mask_convert == 5, axis=0)] = [255, 214, 33] #seminatural grassland
-    #PLEASE NOTE THAT MASK_CONVERT IS OFF FROM SETTLEMENT ONWARDS. IN UNETKATHE WE HAVE CLASS 4 (WATER BODY) AND CLASS 6 (OTHER).
-    #when adding these classes,m if the geoseg proves useful, please add them to the label2rgb function with their appropriate associated number. ALSO AD THEM TO 'datasets/biodiversity_dataset.py'
     return mask_rgb
 
 
@@ -41,25 +50,101 @@ def img_writer(inp):
     if rgb:
         mask_name_tif = mask_id + '.tif'
         mask_tif = label2rgb(mask)
-        # Convert to TIFF-compatible format
         mask_tif = cv2.cvtColor(mask_tif, cv2.COLOR_RGB2BGR)
-        # Write as TIFF with compression
         cv2.imwrite(mask_name_tif, mask_tif, [cv2.IMWRITE_TIFF_COMPRESSION, 1])
     else:
         mask_tif = mask.astype(np.uint8)
         mask_name_tif = mask_id + '.tif'
-        # Write as TIFF with compression
         cv2.imwrite(mask_name_tif, mask_tif, [cv2.IMWRITE_TIFF_COMPRESSION, 1])
+
+
+def safe_load_checkpoint(checkpoint_path, config=None):
+    """Safely load checkpoint with PyTorch 2.6+ compatibility"""
+    print(f"Loading checkpoint: {checkpoint_path}")
+    
+    # Ensure all numpy types are added to safe_globals list
+    try:
+        add_safe_globals([
+            multiarray.scalar, 
+            np.dtype, 
+            np.float64,
+            np.dtypes.Float64DType,
+            np.float32, 
+            np.int64, 
+            np.int32
+        ])
+    except Exception as e:
+        print(f"Warning: Could not add all numpy types to safe_globals: {e}")
+    
+    try:
+        # Method 1: Try with Lightning's load_from_checkpoint (handles the PyTorch fix internally)
+        if config:
+            model = Supervision_Train.load_from_checkpoint(
+                str(checkpoint_path), 
+                config=config,
+                map_location='cpu'
+            )
+        else:
+            model = Supervision_Train.load_from_checkpoint(
+                str(checkpoint_path),
+                map_location='cpu'
+            )
+        print("✓ Model loaded successfully with Lightning")
+        return model
+        
+    except Exception as e:
+        if "weights_only" in str(e) or "UnpicklingError" in str(e):
+            print(f"PyTorch loading issue detected. Trying manual fix...")
+            
+            # Method 2: Manual loading with safe_globals
+            try:
+                with safe_globals([multiarray.scalar, np.dtype, np.float64]):
+                    if config:
+                        model = Supervision_Train.load_from_checkpoint(
+                            str(checkpoint_path), 
+                            config=config,
+                            map_location='cpu'
+                        )
+                    else:
+                        model = Supervision_Train.load_from_checkpoint(
+                            str(checkpoint_path),
+                            map_location='cpu'
+                        )
+                print("✓ Model loaded with safe_globals fix")
+                return model
+            except Exception as e2:
+                print(f"Safe globals method failed: {e2}")
+                
+                # Method 3: Last resort - try with weights_only=False (security risk but trusted checkpoint)
+                try:
+                    print("Attempting to load with weights_only=False (only use with trusted checkpoints)...")
+                    if config:
+                        checkpoint = torch.load(str(checkpoint_path), map_location='cpu', weights_only=False)
+                        model = Supervision_Train(config)
+                        model.load_state_dict(checkpoint['state_dict'], strict=False)
+                    else:
+                        model = Supervision_Train.load_from_checkpoint(
+                            str(checkpoint_path),
+                            map_location='cpu',
+                            _load_weights_only=False  # Lightning's parameter
+                        )
+                    print("✓ Model loaded with weights_only=False")
+                    return model
+                except Exception as e3:
+                    print(f"Final attempt failed: {e3}")
+        
+        print(f"All loading methods failed: {e}")
+        raise e
 
 
 def get_args():
     parser = argparse.ArgumentParser()
     arg = parser.add_argument
-    arg("-c", "--config_path", type=Path, required=True, help="Path to  config")
+    arg("-c", "--config_path", type=Path, required=True, help="Path to config")
     arg("-o", "--output_path", type=Path, help="Path where to save resulting masks.", required=True)
     arg("-w", "--checkpoint_path", type=Path, required=True, help="Path to specific checkpoint file (.ckpt)")
     arg("-i", "--input_path", type=Path, help="Path to custom input directory (overrides config test dataset)")
-    arg("-t", "--tta", help="Test time augmentation.", default=None, choices=[None, "d4", "lr"]) ## lr is flip TTA, d4 is multi-scale TTA
+    arg("-t", "--tta", help="Test time augmentation.", default=None, choices=[None, "d4", "lr"])
     arg("--rgb", help="whether output rgb masks", action='store_true')
     arg("--val", help="whether eval validation set", action='store_true')
     return parser.parse_args()
@@ -67,7 +152,6 @@ def get_args():
 
 def main():
     args = get_args()
-    config = py2cfg(args.config_path)
     args.output_path.mkdir(exist_ok=True, parents=True)
 
     # Check if the checkpoint file exists
@@ -75,140 +159,173 @@ def main():
         print(f"Error: Checkpoint file {args.checkpoint_path} does not exist!")
         return
     
-    # Load model from the specified checkpoint path instead of config default
-    print(f"Loading model from checkpoint: {args.checkpoint_path}")
+    # Load config
+    config = None
+    if args.config_path and args.config_path.exists():
+        print(f"Loading config from: {args.config_path}")
+        try:
+            config = py2cfg(args.config_path)
+            print("✓ Config loaded successfully")
+        except Exception as e:
+            print(f"Warning: Could not load config: {e}")
     
-    # Try loading with strict=False first to handle key mismatches
+    # Load model with PyTorch 2.6+ fix
     try:
-        model = Supervision_Train.load_from_checkpoint(str(args.checkpoint_path), config=config)
-    except RuntimeError as e:
-        if "Missing key(s) in state_dict" in str(e) or "Unexpected key(s) in state_dict" in str(e):
-            print("Key mismatch detected. Attempting manual state_dict loading...")
-            
-            # Create model manually and load state dict with key mapping
-            model = Supervision_Train(config)
-            
-            # Load checkpoint manually
-            checkpoint = torch.load(str(args.checkpoint_path), map_location='cpu')
-            state_dict = checkpoint['state_dict']
-            
-            # Fix key names - remove 'model.' prefix and replace with 'net.'
-            fixed_state_dict = {}
-            for key, value in state_dict.items():
-                if key.startswith('model.'):
-                    new_key = key.replace('model.', 'net.', 1)
-                    fixed_state_dict[new_key] = value
-                else:
-                    fixed_state_dict[key] = value
-            
-            # Load the fixed state dict
-            try:
-                model.load_state_dict(fixed_state_dict, strict=False)
-                print("Successfully loaded checkpoint with key mapping")
-            except Exception as load_error:
-                print(f"Failed to load even with key mapping: {load_error}")
-                return
-        else:
-            print(f"Unexpected error loading checkpoint: {e}")
-            return
+        model = safe_load_checkpoint(args.checkpoint_path, config)
+    except Exception as e:
+        print(f"Failed to load model: {e}")
+        return
+    
+    # Test 4-channel input
+    print("Testing 4-channel input compatibility...")
+    try:
+        dummy_input = torch.randn(1, 4, 256, 256)
+        model.eval()
+        with torch.no_grad():
+            if hasattr(model, 'net'):
+                test_output = model.net(dummy_input)
+            else:
+                test_output = model(dummy_input)
+        print("✓ Model accepts 4-channel input!")
+    except Exception as e:
+        print(f"❌ Model failed 4-channel test: {e}")
+        print("This suggests the model wasn't properly configured for 4-channel input")
+        return
     
     model.cuda()
     model.eval()
     
+    # Setup TTA
     if args.tta == "lr":
-        transforms = tta.Compose(
-            [
-                tta.HorizontalFlip(),
-                tta.VerticalFlip()
-            ]
-        )
+        transforms = tta.Compose([
+            tta.HorizontalFlip(),
+            tta.VerticalFlip()
+        ])
         model = tta.SegmentationTTAWrapper(model, transforms)
     elif args.tta == "d4":
-        transforms = tta.Compose(
-            [
-                tta.HorizontalFlip(),
-                # tta.VerticalFlip(),
-                # tta.Rotate90(angles=[0, 90, 180, 270]),
-                tta.Scale(scales=[0.75, 1.0, 1.25, 1.5], interpolation='bicubic', align_corners=False),
-                # tta.Multiply(factors=[0.8, 1, 1.2])
-            ]
-        )
+        transforms = tta.Compose([
+            tta.HorizontalFlip(),
+            tta.Scale(scales=[0.75, 1.0, 1.25, 1.5], interpolation='bicubic', align_corners=False),
+        ])
         model = tta.SegmentationTTAWrapper(model, transforms)
 
-    test_dataset = config.test_dataset
-    if args.val:
-        evaluator = Evaluator(num_class=config.num_classes)
-        evaluator.reset()
-        test_dataset = config.val_dataset
-    
-    # Override with custom input directory if provided
+    # Setup dataset
     if args.input_path:
         if not args.input_path.exists():
             print(f"Error: Input directory {args.input_path} does not exist!")
             return
         print(f"Using custom input directory: {args.input_path}")
-        
-        # Determine the correct data_root path
-        # If user provided the full path to images_png, get the parent directories
-        if args.input_path.name == 'images_png' and args.input_path.parent.name == 'Rural':
-            data_root = str(args.input_path.parent.parent)  # Go up two levels to get Test_2
-        else:
-            data_root = str(args.input_path)
-        
-        # Create a custom test dataset with the specified directory
-        from geoseg.datasets.biodiversity_tiff_dataset import BiodiversityTiffTestDataset
-        test_dataset = BiodiversityTiffTestDataset(data_root=data_root)
+        test_dataset = BiodiversityTiffTestDataset(data_root=str(args.input_path))
         print(f"Found {len(test_dataset)} images to process")
+    elif config and hasattr(config, 'test_dataset'):
+        test_dataset = config.test_dataset
+    else:
+        print("Error: Please provide input directory with -i argument or ensure config has test_dataset")
+        return
 
+    if len(test_dataset) == 0:
+        print("Error: No images found in dataset!")
+        return
+
+    # Setup validation if requested
+    if args.val:
+        from tools.metric import Evaluator
+        evaluator = Evaluator(num_class=6)
+        evaluator.reset()
+
+    # Process images
     with torch.no_grad():
         test_loader = DataLoader(
             test_dataset,
             batch_size=2,
-            num_workers=4,
+            num_workers=0,
             pin_memory=True,
             drop_last=False,
         )
+        
         results = []
-        for input in tqdm(test_loader):
-            # raw_prediction NxCxHxW
-            raw_predictions = model(input['img'].cuda())
-
-            image_ids = input["img_id"]
-            if args.val:
-                masks_true = input['gt_semantic_seg']
-
-            img_type = input['img_type']
-
-            raw_predictions = nn.Softmax(dim=1)(raw_predictions)
-            predictions = raw_predictions.argmax(dim=1)
-
-            for i in range(raw_predictions.shape[0]):
-                mask = predictions[i].cpu().numpy()
-                mask_name = image_ids[i]
-                mask_type = img_type[i]
-                if args.val:
-                    if not os.path.exists(os.path.join(args.output_path, mask_type)):
-                        os.mkdir(os.path.join(args.output_path, mask_type))
-                    evaluator.add_batch(pre_image=mask, gt_image=masks_true[i].cpu().numpy())
-                    results.append((mask, str(args.output_path / mask_type / mask_name), args.rgb))
+        for batch_idx, input in enumerate(tqdm(test_loader, desc="Processing images")):
+            # Debug first batch
+            if batch_idx == 0:
+                print(f"\nFirst batch debug info:")
+                print(f"  Keys: {input.keys()}")
+                print(f"  Image shape: {input['img'].shape}")
+                print(f"  Image dtype: {input['img'].dtype}")
+                print(f"  Image device: {input['img'].device}")
+                print(f"  Image range: [{input['img'].min():.3f}, {input['img'].max():.3f}]")
+                
+                if input['img'].shape[1] != 4:
+                    print(f"❌ WARNING: Expected 4 channels, got {input['img'].shape[1]}")
+                    print("This indicates the dataset is not loading 4-channel images!")
                 else:
-                    results.append((mask, str(args.output_path / mask_name), args.rgb))
-    if args.val:
-        iou_per_class = evaluator.Intersection_over_Union()
-        f1_per_class = evaluator.F1()
-        OA = evaluator.OA()
-        for class_name, class_iou, class_f1 in zip(config.classes, iou_per_class, f1_per_class):
-            print('F1_{}:{}, IOU_{}:{}'.format(class_name, class_f1, class_name, class_iou))
-        print('F1:{}, mIOU:{}, OA:{}'.format(np.nanmean(f1_per_class), np.nanmean(iou_per_class), OA))
+                    print("✓ Dataset is correctly loading 4-channel images")
+            
+            try:
+                # Get predictions
+                img_cuda = input['img'].cuda()
+                if hasattr(model, 'net'):
+                    raw_predictions = model.net(img_cuda)
+                else:
+                    raw_predictions = model(img_cuda)
+                
+                # Handle different output formats
+                if isinstance(raw_predictions, (list, tuple)):
+                    raw_predictions = raw_predictions[0]  # Take main output
+                
+                image_ids = input["img_id"]
+                img_type = input.get('img_type', 'tif')
+                
+                if args.val and 'gt_semantic_seg' in input:
+                    masks_true = input['gt_semantic_seg']
 
-    t0 = time.time()
-    mpp.Pool(processes=mp.cpu_count()).map(img_writer, results)
-    t1 = time.time()
-    img_write_time = t1 - t0
-    print('images writing spends: {} s'.format(img_write_time))
+                raw_predictions = nn.Softmax(dim=1)(raw_predictions)
+                predictions = raw_predictions.argmax(dim=1)
+
+                for i in range(predictions.shape[0]):
+                    mask = predictions[i].cpu().numpy()
+                    mask_name = image_ids[i] if isinstance(image_ids[i], str) else str(image_ids[i])
+                    
+                    if args.val and 'gt_semantic_seg' in input:
+                        evaluator.add_batch(pre_image=mask, gt_image=masks_true[i].cpu().numpy())
+                    
+                    results.append((mask, str(args.output_path / mask_name), args.rgb))
+                    
+            except Exception as e:
+                print(f"Error processing batch {batch_idx}: {e}")
+                if batch_idx == 0:  # Show full error for first batch
+                    import traceback
+                    traceback.print_exc()
+                continue
+
+    # Print validation results if requested
+    if args.val and 'evaluator' in locals():
+        try:
+            iou_per_class = evaluator.Intersection_over_Union()
+            f1_per_class = evaluator.F1()
+            OA = evaluator.OA()
+            
+            classes = ['Background', 'Forest land', 'Grassland', 'Cropland', 'Settlement', 'Seminatural Grassland']
+            
+            print("\nValidation Results:")
+            for class_name, class_iou, class_f1 in zip(classes, iou_per_class, f1_per_class):
+                print('F1_{}:{:.4f}, IOU_{}:{:.4f}'.format(class_name, class_f1, class_name, class_iou))
+            print('Overall - F1:{:.4f}, mIOU:{:.4f}, OA:{:.4f}'.format(
+                np.nanmean(f1_per_class), np.nanmean(iou_per_class), OA))
+        except Exception as e:
+            print(f"Validation computation failed: {e}")
+
+    # Write results
+    if results:
+        print(f"\nWriting {len(results)} prediction masks...")
+        t0 = time.time()
+        mpp.Pool(processes=mp.cpu_count()).map(img_writer, results)
+        t1 = time.time()
+        img_write_time = t1 - t0
+        print('Images writing took: {:.2f} seconds'.format(img_write_time))
+        print(f"Results saved to: {args.output_path}")
+    else:
+        print("❌ No results generated!")
 
 
 if __name__ == "__main__":
     main()
-
-    # sample usage: python GeoSeg-Kathe/biodiversity_test_direct.py -c GeoSeg-Kathe/config/biodiversity/unetformer.py -w "C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\model_weights\biodiversity\biodiversityL5e-04BL1e-04W1e-02BW1e-02B16E75S1.00\last.ckpt" -i "C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\data\Biodiversity\Test_2\Rural\images_png" -o "C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\predictions\best\config3" --rgb

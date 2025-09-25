@@ -1,3 +1,8 @@
+import sys
+import os
+
+# Add the parent directory to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import ttach as tta
 import multiprocessing.pool as mpp
 import multiprocessing as mp
@@ -8,9 +13,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
+import rasterio
+from torch.serialization import safe_globals, add_safe_globals
+import numpy._core.multiarray as multiarray
+import numpy
 
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 
@@ -55,6 +64,49 @@ def get_args():
     return parser.parse_args()
 
 
+class SimpleTestDataset(Dataset):
+    def __init__(self, img_dir):
+        self.img_dir = Path(img_dir)
+        self.img_files = list(self.img_dir.glob('*.tif'))  # Find all TIFF files
+        if not self.img_files:  # If no TIFFs found, try PNGs
+            self.img_files = list(self.img_dir.glob('*.png'))
+        print(f"Found {len(self.img_files)} images to process")
+        
+    def __len__(self):
+        return len(self.img_files)
+        
+    def __getitem__(self, idx):
+        img_path = self.img_files[idx]
+        # Read image with rasterio for proper handling of TIFF files
+        try:
+            with rasterio.open(str(img_path)) as src:
+                img = src.read()  # Shape: (bands, height, width)
+                img = np.transpose(img, (1, 2, 0))  # Reshape to (height, width, bands)
+        except:            # Fallback to OpenCV if rasterio fails
+            img = cv2.imread(str(img_path), cv2.IMREAD_UNCHANGED)
+            if len(img.shape) == 2:  # If grayscale, add channel dimension
+                img = img[:, :, np.newaxis]
+            elif len(img.shape) == 3:
+                if img.shape[2] == 4:  # If RGBA/4-channel, keep all channels
+                    pass
+                else:  # If BGR, convert to RGB
+                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        
+        # Normalize image to float32
+        img = img.astype(np.float32) / 255.0
+          # Ensure channels first: (H,W,C) -> (C,H,W)
+        if len(img.shape) == 3:
+            img = np.transpose(img, (2, 0, 1))
+        else:
+            img = img[np.newaxis, :, :]  # Add channel dim for grayscale
+            
+        return {
+            'img': torch.from_numpy(img).float(),
+            'img_id': img_path.stem,
+            'img_type': 'test'
+        }
+
+
 def main():
     args = get_args()
     config = py2cfg(args.config_path)
@@ -64,13 +116,17 @@ def main():
     if not args.checkpoint_path.exists():
         print(f"Error: Checkpoint file {args.checkpoint_path} does not exist!")
         return
-    
+
     # Load model from the specified checkpoint path instead of config default
     print(f"Loading model from checkpoint: {args.checkpoint_path}")
     
-    # Try loading with strict=False first to handle key mismatches
+    # Add numpy types to safe globals list
+    add_safe_globals([multiarray.scalar, numpy.dtype, numpy.dtypes.Float64DType])
+    
     try:
-        model = Supervision_Train.load_from_checkpoint(str(args.checkpoint_path), config=config)
+        # Try loading with safe_globals context first
+        with safe_globals([multiarray.scalar, numpy.dtype, numpy.dtypes.Float64DType]):
+            model = Supervision_Train.load_from_checkpoint(str(args.checkpoint_path), config=config)
     except RuntimeError as e:
         if "Missing key(s) in state_dict" in str(e) or "Unexpected key(s) in state_dict" in str(e):
             print("Key mismatch detected. Attempting manual state_dict loading...")
@@ -78,8 +134,9 @@ def main():
             # Create model manually and load state dict with key mapping
             model = Supervision_Train(config)
             
-            # Load checkpoint manually
-            checkpoint = torch.load(str(args.checkpoint_path), map_location='cpu')
+            # Load checkpoint manually with safe_globals
+            with safe_globals([multiarray.scalar, numpy.dtype, numpy.dtypes.Float64DType]):
+                checkpoint = torch.load(str(args.checkpoint_path), map_location='cpu', weights_only=False)
             state_dict = checkpoint['state_dict']
             
             # Fix key names - remove 'model.' prefix and replace with 'net.'
@@ -124,31 +181,22 @@ def main():
             ]
         )
         model = tta.SegmentationTTAWrapper(model, transforms)
-
-    test_dataset = config.test_dataset
+    
     if args.val:
         evaluator = Evaluator(num_class=config.num_classes)
         evaluator.reset()
         test_dataset = config.val_dataset
-    
+    else:
+        test_dataset = None  # Will be overridden if input_path is provided
     # Override with custom input directory if provided
     if args.input_path:
         if not args.input_path.exists():
             print(f"Error: Input directory {args.input_path} does not exist!")
             return
-        print(f"Using custom input directory: {args.input_path}")
+        print(f"Using input directory: {args.input_path}")
+          # Use the SimpleTestDataset class defined at module level
         
-        # Determine the correct data_root path
-        # If user provided the full path to images_png, get the parent directories
-        if args.input_path.name == 'images_png' and args.input_path.parent.name == 'Rural':
-            data_root = str(args.input_path.parent.parent)  # Go up two levels to get Test_2
-        else:
-            data_root = str(args.input_path)
-        
-        # Create a custom test dataset with the specified directory
-        from geoseg.datasets.biodiversity_dataset import BiodiversityTestDataset
-        test_dataset = BiodiversityTestDataset(data_root=data_root)
-        print(f"Found {len(test_dataset)} images to process")
+        test_dataset = SimpleTestDataset(args.input_path)
 
     with torch.no_grad():
         test_loader = DataLoader(
@@ -201,4 +249,5 @@ def main():
 if __name__ == "__main__":
     main()
 
-    # sample usage: python GeoSeg-Kathe/biodiversity_test_direct.py -c GeoSeg-Kathe/config/biodiversity/unetformer.py -w "C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\model_weights\biodiversity\biodiversityL5e-04BL1e-04W1e-02BW1e-02B16E75S1.00\last.ckpt" -i "C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\data\Biodiversity\Test_2\Rural\images_png" -o "C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\predictions\best\config3" --rgb
+#sample usage:  python GeoSeg-Kathe/outputs/biodiversity_test_direct.py -c GeoSeg-Kathe/config/biodiversity_tiff/unetformer.py -w "" -i "" -o "" --rgb 
+# sample usage: python GeoSeg-Kathe/biodiversity_test_direct.py -c GeoSeg-Kathe/config/biodiversity/unetformer.py -w "C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\model_weights\biodiversity\biodiversityL5e-04BL1e-04W1e-02BW1e-02B16E75S1.00\last.ckpt" -i "C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\data\Biodiversity\Test_2\Rural\images_png" -o "C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\predictions\best\config3" --rgb
