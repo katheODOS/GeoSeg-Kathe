@@ -45,8 +45,8 @@ def get_training_transform():
     train_transform = [
         albu.HorizontalFlip(p=0.5),
         albu.Normalize(
-            mean=[0.5, 0.5, 0.5, 0.5],  # 4 channels
-            std=[0.5, 0.5, 0.5, 0.5]     # 4 channels
+            mean=[0.0172106  0.02229412 0.01523159 0.10436415],  # 4 channels
+            std=[0.00903907 0.00656486 0.00494434 0.0250646]     # 4 channels
         )
     ]
     return albu.Compose(train_transform)

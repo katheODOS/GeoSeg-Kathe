@@ -17,9 +17,9 @@ backbone_weight_decay = 2.5e-4
 num_classes = 6
 classes = CLASSES
 
-weights_name = "ftunetformer-512-crop-ms-e45"
+weights_name = "ftunetformer-4band-e45-defaultparams-norm-basedata"
 weights_path = "model_weights/biodiversity_tiff4/{}".format(weights_name)
-test_weights_name = "ftunetformer-4band-e45-defaultparams-extradata"
+test_weights_name = "ftunetformer-4band-e45-defaultparams-norm-basedata"
 log_name = 'ftunetformer/{}'.format(weights_name)
 monitor = 'val_F1'
 monitor_mode = 'max'

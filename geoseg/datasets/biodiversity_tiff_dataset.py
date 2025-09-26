@@ -27,9 +27,21 @@ def get_training_transform():
         albu.HorizontalFlip(p=0.5),
         albu.VerticalFlip(p=0.5),
         albu.RandomBrightnessContrast(brightness_limit=0.25, contrast_limit=0.25, p=0.25),
-        albu.Normalize()
+        albu.Normalize(
+            mean=[0.0172106,  0.02229412, 0.01523159, 0.10436415],  
+            std=[0.00903907, 0.00656486, 0.00494434, 0.0250646] 
+        )
     ]
     return albu.Compose(train_transform)
+
+def get_val_transform():
+    val_transform = [
+        albu.Normalize(
+            mean=[0.0172106,  0.02229412, 0.01523159, 0.10436415], 
+            std=[0.00903907, 0.00656486, 0.00494434, 0.0250646]   
+        )
+    ]
+    return albu.Compose(val_transform)
 
 
 def train_aug(img, mask):
@@ -43,12 +55,6 @@ def train_aug(img, mask):
     img, mask = aug['image'], aug['mask']
     return img, mask
 
-
-def get_val_transform():
-    val_transform = [
-        albu.Normalize()
-    ]
-    return albu.Compose(val_transform)
 
 
 def val_aug(img, mask):
