@@ -30,3 +30,7 @@ model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/results/class_iou_
 model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/results/confusion_matrix.png
 model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/results/evaluation_report.txt
 lightning_logs/ftunetformer/ftunetformer-512-crop-ms-e45/version_1/metrics.csv
+model_weights/biodiversity_tiff4/ftunetformer-4band-e45-defaultparams-norm-basedata/ftunetformer-4band-e45-defaultparams-norm-basedata.ckpt
+model_weights/biodiversity_tiff4/ftunetformer-4band-e45-defaultparams-norm-basedata/last.ckpt
+lightning_logs/ftunetformer/ftunetformer-4band-e45-defaultparams-norm-basedata/version_1/hparams.yaml
+lightning_logs/ftunetformer/ftunetformer-4band-e45-defaultparams-norm-basedata/version_1/metrics.csv

@@ -113,7 +113,7 @@ class BiodiversityTiffTrainDataset(Dataset):
                 if mask_file in mask_filename_list:
                     img_ids.append(img_name)
         
-        print(f"Found {len(img_ids)} matching image-mask pairs")
+        #print(f"Found {len(img_ids)} matching image-mask pairs")
         return img_ids
 
     def normalize_image(self, img_data):
@@ -275,8 +275,8 @@ class BiodiversityTiffTestDataset(Dataset):
 try:
     val_path = osp.join('../data', 'Biodiversity_tiff', 'Val')
     abs_val_path = osp.abspath(val_path)
-    print(f"Looking for validation data at: {abs_val_path}")
-    print(f"Path exists: {os.path.exists(val_path)}")
+   # print(f"Looking for validation data at: {abs_val_path}")
+    #print(f"Path exists: {os.path.exists(val_path)}")
     if os.path.exists(val_path):
         biodiversity_tiff_val_dataset = BiodiversityTiffTrainDataset(
             data_root=val_path,
