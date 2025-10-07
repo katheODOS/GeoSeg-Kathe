@@ -964,7 +964,7 @@ class FTUNetFormer(nn.Module):
 
 def ft_unetformer(pretrained=True, num_classes=6, freeze_stages=-1, decoder_channels=256,
                   in_channels=3,  # ADD THIS PARAMETER
-                  weight_path='../pretrain_weights/stseg_base.pth'):
+                  weight_path='C:/Users/Admin/anaconda3/envs/GeoSeg-Kathe/pretrain_weights/stseg_base.pth'):
     model = FTUNetFormer(
         num_classes=num_classes,
         freeze_stages=freeze_stages,
