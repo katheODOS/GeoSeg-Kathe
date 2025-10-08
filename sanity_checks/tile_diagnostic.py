@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Fixed checkpoint loader for 4-band FTUNetFormer
-Properly handles NaN/nodata and custom checkpoint formats
+FIXED: Properly loads PyTorch Lightning checkpoints for 4-band FTUNetFormer
 """
 
 import sys
@@ -52,7 +51,7 @@ def img_writer(inp):
 
 
 class SimpleImageDataset(Dataset):
-    """Dataset that loads 4-band TIFF images with proper NaN handling"""
+    """Dataset that loads 4-band TIFF images"""
     
     def __init__(self, image_dir, expected_channels=4):
         self.image_dir = Path(image_dir)
@@ -88,7 +87,7 @@ class SimpleImageDataset(Dataset):
                     padded[:img_data.shape[0]] = img_data
                     img_data = padded
                 
-                # Create a mask for valid pixels (no NaN, no nodata, no inf)
+                # Create a mask for valid pixels (no NaN, no nodata)
                 valid_mask = np.ones((img_data.shape[1], img_data.shape[2]), dtype=bool)
                 for i in range(img_data.shape[0]):
                     band_mask = ~np.isnan(img_data[i]) & ~np.isinf(img_data[i])
@@ -145,7 +144,7 @@ class SimpleImageDataset(Dataset):
                 'img': img_tensor,
                 'img_id': img_id,
                 'img_path': str(img_path),
-                'valid_pixel_ratio': valid_ratio
+                'valid_pixel_ratio': valid_mask.sum() / valid_mask.size  # Track how much is valid
             }
             
         except Exception as e:
@@ -161,7 +160,7 @@ class SimpleImageDataset(Dataset):
 
 def load_checkpoint_properly(checkpoint_path, num_classes=6, input_channels=4):
     """
-    Load checkpoint - handles multiple formats (state_dict or model_state_dict)
+    CRITICAL FIX: Properly load checkpoint (handles multiple formats)
     """
     print(f"\n📂 Loading checkpoint: {checkpoint_path}")
     
@@ -236,7 +235,6 @@ def test_model_on_sample(model, dataset):
     
     print(f"  Input shape: {dummy_input.shape}")
     print(f"  Input range: [{dummy_input.min():.3f}, {dummy_input.max():.3f}]")
-    print(f"  Valid pixel ratio: {sample['valid_pixel_ratio']:.1%}")
     
     model.eval()
     with torch.no_grad():
@@ -269,7 +267,6 @@ def get_args():
     arg("--rgb", action='store_true', help="Output RGB masks")
     arg("--num-classes", type=int, default=6, help="Number of classes")
     arg("--force-channels", type=int, default=4, choices=[3, 4, 8], help="Input channels")
-    arg("--batch-size", type=int, default=2, help="Batch size for inference")
     return parser.parse_args()
 
 
@@ -294,7 +291,6 @@ def main():
     print(f"Input: {args.input_path}")
     print(f"Output: {args.output_path}")
     print(f"Channels: {args.force_channels}")
-    print(f"Batch size: {args.batch_size}")
     print("=" * 70)
     
     # Create dataset
@@ -342,7 +338,7 @@ def main():
     # Create dataloader
     test_loader = DataLoader(
         dataset,
-        batch_size=args.batch_size,
+        batch_size=2,
         num_workers=0,
         pin_memory=True,
         drop_last=False

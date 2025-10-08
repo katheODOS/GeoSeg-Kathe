@@ -7,10 +7,10 @@ import torch
 import io
 import numpy as np
 import albumentations as albu
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from geoseg.losses import *
 from geoseg.datasets.biodiversity_tiff_dataset import *
-from geoseg.models.FTUNetFormer import ft_unetformer
+from geoseg.models.UNetFormer import UNetFormer
 from tools.utils import Lookahead
 from tools.utils import process_model_params
 from contextlib import redirect_stdout
@@ -21,161 +21,10 @@ import atexit
 import re
 from tools.metric import Evaluator
 import heapq
-import random
-from PIL import Image
-import os.path as osp
-import rasterio
-
-# Define ORIGIN_IMG_SIZE before it's used in BiodiversityTiffDataset
-ORIGIN_IMG_SIZE = 512
-
-# Define augmentation functions
-def get_training_augmentation():
-    train_transform = [
-        albu.HorizontalFlip(p=0.5),
-        albu.VerticalFlip(p=0.5),
-        albu.RandomRotate90(p=0.5)
-    ]
-    return albu.Compose(train_transform, additional_targets={'mask': 'mask'})
-
-def get_validation_augmentation():
-    # No special validation augmentation
-    return albu.Compose([], additional_targets={'mask': 'mask'})
-
-def to_tensor(x, **kwargs):
-    return x.transpose(2, 0, 1).astype('float32')
-
-def get_preprocessing(preprocessing_fn=None):
-    """Construct preprocessing transform
-    Args:
-        preprocessing_fn (callable): data normalization function 
-            (can be specific for each pretrained neural network)
-    Return:
-        transform: albumentations.Compose
-    """
-    return albu.Compose([])
-
-# Define train and val augmentations
-train_aug = get_training_augmentation()
-val_aug = get_validation_augmentation()
-
-# Create a unified dataset class that can handle both training and validation
-class BiodiversityTiffDataset(Dataset):
-    def __init__(self, data_root='../data/Biodiversity_tiff/Train',
-                 img_dir='images', mask_dir='masks',
-                 img_suffix='.tif', mask_suffix='.png',
-                 transform=None, mosaic_ratio=0.0,
-                 img_size=ORIGIN_IMG_SIZE, mode='train'):
-        self.data_root = data_root
-        self.img_dir = img_dir
-        self.mask_dir = mask_dir
-        self.img_suffix = img_suffix
-        self.mask_suffix = mask_suffix
-        self.transform = transform        
-        self.mosaic_ratio = mosaic_ratio if mode == 'train' else 0.0
-        self.img_size = img_size
-        self.mode = mode
-        self.img_ids = self.get_img_ids(self.data_root, self.img_dir, self.mask_dir)
-        
-    def __getitem__(self, index):
-        p_ratio = random.random()
-        if self.mode == 'train' and p_ratio > self.mosaic_ratio:
-            img, mask = self.load_img_and_mask(index)
-            if self.transform:
-                transformed = self.transform(image=img, mask=mask)
-                img, mask = transformed['image'], transformed['mask']
-        else:
-            img, mask = self.load_img_and_mask(index)
-            if self.transform:
-                transformed = self.transform(image=img, mask=mask)
-                img, mask = transformed['image'], transformed['mask']
-
-        img = torch.from_numpy(img).permute(2, 0, 1).float()
-        mask = torch.from_numpy(mask).long()
-        img_id = self.img_ids[index]
-        results = {'img': img, 'gt_semantic_seg': mask, 'img_id': img_id}
-        return results
-
-    def __len__(self):
-        return len(self.img_ids)
-
-    def get_img_ids(self, data_root, img_dir, mask_dir):
-        img_filename_list = os.listdir(osp.join(data_root, img_dir))
-        mask_filename_list = os.listdir(osp.join(data_root, mask_dir))
-        
-        # Filter to only matching files
-        img_ids = []
-        for img_file in img_filename_list:
-            if img_file.endswith('.tif'):
-                img_name = str(img_file.split('.')[0])
-                mask_file = img_name + self.mask_suffix
-                if mask_file in mask_filename_list:
-                    img_ids.append(img_name)
-        
-        print(f"Found {len(img_ids)} matching image-mask pairs in {data_root}")
-        return img_ids
-
-    def normalize_image(self, img_data):
-        """Normalize image data to 0-1 range for each band"""
-        normalized = np.zeros_like(img_data, dtype=np.float32)
-        
-        for i in range(img_data.shape[2]):
-            band = img_data[:, :, i].astype(np.float32)
-            # Remove nodata/invalid values for percentile calculation
-            valid_pixels = band[~np.isnan(band)]
-            valid_pixels = valid_pixels[valid_pixels != 0]  # Remove zeros
-            
-            if len(valid_pixels) > 0:
-                # Use percentile normalization to handle outliers
-                p2, p98 = np.percentile(valid_pixels, (2, 98))
-                band = np.clip(band, p2, p98)
-                band = (band - p2) / (p98 - p2) if p98 > p2 else band
-            
-            normalized[:, :, i] = band
-        
-        return normalized
-
-    def load_img_and_mask(self, index):
-        img_id = self.img_ids[index]
-        img_name = osp.join(self.data_root, self.img_dir, img_id + self.img_suffix)
-        mask_name = osp.join(self.data_root, self.mask_dir, img_id + self.mask_suffix)
-        
-        # Load TIFF with rasterio to handle geospatial data properly
-        try:
-            with rasterio.open(img_name) as src:
-                # Read all bands
-                img_data = src.read()  # Shape: (bands, height, width)
-                img_data = np.transpose(img_data, (1, 2, 0))  # Shape: (height, width, bands)
-                
-                # Handle nodata values
-                nodata = src.nodata
-                if nodata is not None:
-                    img_data = np.where(img_data == nodata, 0, img_data)
-                
-                # Handle NaN values
-                img_data = np.where(np.isnan(img_data), 0, img_data)
-                
-                # Normalize the image
-                img_data = self.normalize_image(img_data)
-                
-                # Keep all 4 channels for 4-channel model
-                img = img_data
-                
-        except Exception as e:
-            print(f"Error reading TIFF {img_name}: {e}")
-            # Fallback to zeros
-            img = np.zeros((512, 512, 4), dtype=np.float32)
-        
-        # Load mask
-        try:
-            mask = np.array(Image.open(mask_name).convert('L'))
-        except Exception as e:
-            print(f"Error reading mask {mask_name}: {e}")
-            mask = np.zeros((512, 512), dtype=np.uint8)
-        
-        return img, mask
+import json
 
 num_classes = 6
+max_epoch = 30
 
 LR = [4e-4, 5e-4]
 BACKBONE_LR = [4e-5, 5e-5, 6e-5]
@@ -185,15 +34,90 @@ WEIGHT_DECAYS = [5e-2, 1e-1]
 BACKBONE_WEIGHT_DECAYS = [1e-2]
 SCALE = [1.0]
 
-# Dataset configurations with path mappings (following hyperparameter_tuning.py format)
+# Dataset configurations with path mappings
 DATASETS = {
-    'biodiversity': {
-        'name': 'Biodiversity Dataset Tiff', 
-        'code': 'biodiversity_tiff', 
-        'path': 'Biodiversity_tiff/Train',
-        'val_path': 'Biodiversity_tiff/Val'  # Add explicit validation path
-    },
+    'biodiversity': {'name': 'Biodiversity Dataset Tiff', 'code': 'biodiversity_tiff', 'path': 'Biodiversity_tiff/Train'},
 }
+
+# ============================================================================
+# NEW FUNCTIONS FOR RESUME CAPABILITY
+# ============================================================================
+
+def save_training_progress(checkpoint_dir, epoch, config_name):
+    """Save the current training progress"""
+    progress_file = checkpoint_dir / 'training_progress.json'
+    progress_data = {
+        'last_completed_epoch': epoch,
+        'config_name': config_name,
+        'status': 'in_progress'
+    }
+    with open(progress_file, 'w') as f:
+        json.dump(progress_data, f, indent=2)
+
+def mark_training_complete(checkpoint_dir):
+    """Mark training as completed"""
+    progress_file = checkpoint_dir / 'training_progress.json'
+    if progress_file.exists():
+        with open(progress_file, 'r') as f:
+            progress_data = json.load(f)
+        progress_data['status'] = 'completed'
+        with open(progress_file, 'w') as f:
+            json.dump(progress_data, f, indent=2)
+
+def get_training_progress(checkpoint_dir):
+    """Get the last completed epoch for a configuration
+    
+    Returns:
+        tuple: (last_completed_epoch, is_completed)
+               last_completed_epoch is -1 if training hasn't started
+               is_completed is True if training finished all epochs
+    """
+    progress_file = checkpoint_dir / 'training_progress.json'
+    
+    if not progress_file.exists():
+        return -1, False
+    
+    try:
+        with open(progress_file, 'r') as f:
+            progress_data = json.load(f)
+        
+        last_epoch = progress_data.get('last_completed_epoch', -1)
+        is_completed = progress_data.get('status', 'in_progress') == 'completed'
+        
+        return last_epoch, is_completed
+    except Exception as e:
+        logging.error(f"Error reading progress file: {e}")
+        return -1, False
+
+def load_checkpoint_for_resume(checkpoint_dir, epoch, model, optimizer, lr_scheduler):
+    """Load checkpoint to resume training from a specific epoch"""
+    checkpoint_path = checkpoint_dir / 'last.ckpt'
+    
+    if not checkpoint_path.exists():
+        logging.warning(f"Checkpoint not found at {checkpoint_path}")
+        return False
+    
+    try:
+        checkpoint = torch.load(checkpoint_path)
+        
+        # Load model state
+        model.load_state_dict(checkpoint['model_state_dict'])
+        
+        # Load optimizer state
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+        # Load scheduler state
+        lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        
+        logging.info(f"Successfully loaded checkpoint from epoch {epoch}")
+        return True
+    except Exception as e:
+        logging.error(f"Error loading checkpoint: {e}")
+        return False
+
+# ============================================================================
+# EXISTING FUNCTIONS
+# ============================================================================
 
 class BestCheckpointTracker:
     """Track the best checkpoints based on validation mIoU"""
@@ -221,9 +145,8 @@ class BestCheckpointTracker:
 
 def setup_checkpoint_dir(dataset_code, lr, backbone_lr, wd, backbone_wd, epochs, batch_size, scale):
     """Create and return checkpoint directory for specific configuration"""
-    # Following hyperparameter_tuning.py naming convention
     dir_name = f"{dataset_code}L{lr:.0e}BL{backbone_lr:.0e}W{wd:.0e}BW{backbone_wd:.0e}B{batch_size}E{epochs}S{scale:.2f}"
-    checkpoint_dir = Path('C:/Users/Admin/anaconda3/envs/GeoSeg-Kathe/model_weights/biodiversity_tiff_ftunetformer_new') / dir_name
+    checkpoint_dir = Path(r'C:\Users\Admin\anaconda3\envs\GeoSeg-Kathe\model_weights\biodiversity_tiff_ftunetformer_new') / dir_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     return checkpoint_dir
 
@@ -275,102 +198,116 @@ def cleanup_wandb():
     """This can be removed entirely"""
     pass
 
+# ============================================================================
+# MODIFIED run_training_configuration WITH RESUME CAPABILITY
+# ============================================================================
+
 def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, batch_size, epochs, 
                              weight_decay, backbone_weight_decay, scale, config_details):
-    """Run training with specific configuration and capture output"""
+    """Run training with specific configuration and capture output - WITH RESUME CAPABILITY"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    # Initialize FTUNetFormer model
-    try:
-        # Add memory initialization to avoid random initialization errors
-        torch.manual_seed(42)  # Set a fixed seed for reproducibility
-        
-        model = ft_unetformer(
-            num_classes=num_classes,
-            decoder_channels=256,
-            pretrained=True,
-            freeze_stages=-1,
-            in_channels=4  # Use 4 channels for TIFF images
-        )
-        model = model.to(device=device)
-    except Exception as e:
-        logging.error(f"Error initializing model: {str(e)}")
-        logging.error(traceback.format_exc())
-        raise
+    # Check for existing progress
+    last_completed_epoch, is_completed = get_training_progress(checkpoint_dir)
     
-    # Parse the config_details which is a string, not a dictionary
-    dataset_info = {}
-    for line in config_details.split('\n'):
-        if ':' in line:
-            key, value = line.split(':', 1)
-            dataset_info[key.strip()] = value.strip()
-    
-    # Ensure data paths are correct
-    data_root = Path('C:/Users/Admin/anaconda3/envs/GeoSeg-Kathe/data')
-    
-    # Get dataset path information from DATASETS dictionary
-    for dataset_key, info in DATASETS.items():
-        if dataset_key in config_details:
-            train_path = data_root / info['path']
-            val_path = data_root / info['val_path']
-            break
-    else:
-        train_path = data_root / 'Biodiversity_tiff/Train'  # Default path
-        val_path = data_root / 'Biodiversity_tiff/Val'      # Default val path
-      # Validate paths exist
-    if not train_path.exists():
-        logging.error(f"Train directory not found: {train_path}")
+    if is_completed:
+        logging.info(f"Training already completed for this configuration. Skipping...")
+        # Load and return the existing output
+        output_file = checkpoint_dir / 'output.txt'
+        if output_file.exists():
+            with open(output_file, 'r') as f:
+                return f.read().split('\n')
         return []
-        
-    if not val_path.exists():
-        logging.warning(f"Val directory not found: {val_path}")
-        logging.warning("Will use Train dataset for validation")
-        val_path = train_path
-    else:
-        logging.info(f"Using validation data from: {val_path}")
     
-    # Create directories if they don't exist to ensure proper dataset loading
-    for path in [train_path, val_path]:
-        for subdir in ['images', 'masks']:
-            os.makedirs(path / subdir, exist_ok=True)
-        
-    # Use loss as defined in the original config
-    loss_fn = JointLoss(SoftCrossEntropyLoss(smooth_factor=0.05, ignore_index=0),
-                       DiceLoss(smooth=0.05, ignore_index=0), 1.0, 1.0)
-    use_aux_loss = False
+    # Determine starting epoch
+    start_epoch = last_completed_epoch + 1
+    
+    if start_epoch > 0:
+        logging.info(f"RESUMING training from epoch {start_epoch} (last completed: {last_completed_epoch})")
+    else:
+        logging.info(f"STARTING training from scratch")
+    
+    # Initialize UNetFormer model
+    model = UNetFormer(
+        num_classes=num_classes,
+        decode_channels=64,
+        dropout=0.1,
+        backbone_name='swsl_resnet18',
+        pretrained=True,
+        in_channels=4
+    )
+    model = model.to(device=device)
+    
+    # Use UnetFormerLoss as defined in the original config
+    loss_fn = UnetFormerLoss(ignore_index=0)
+    use_aux_loss = True
     
     # Initialize checkpoint tracker
     best_tracker = BestCheckpointTracker(keep_top_k=2)
     
     with SafeOutputCapture() as output:
         try:
-            # Add configuration header
-            output.add_line("=" * 80)
-            output.add_line("Configuration Details:")
-            output.add_line("=" * 80)
+            # Add configuration header (only if starting fresh)
+            if start_epoch == 0:
+                output.add_line("=" * 80)
+                output.add_line("Configuration Details:")
+                output.add_line("=" * 80)
+                for line in config_details.split('\n'):
+                    if line.strip():
+                        output.add_line(line)
+                output.add_line("=" * 80)
+            else:
+                # Load previous output
+                output_file = checkpoint_dir / 'output.txt'
+                if output_file.exists():
+                    with open(output_file, 'r') as f:
+                        for line in f:
+                            output.add_line(line.rstrip())
+                output.add_line("=" * 80)
+                output.add_line(f"RESUMING TRAINING FROM EPOCH {start_epoch}")
+                output.add_line(f"   Last completed epoch: {last_completed_epoch}")
+                output.add_line("=" * 80)
+            
+            # Parse the config_details to get dataset info
+            dataset_info = {}
             for line in config_details.split('\n'):
-                if line.strip():
-                    output.add_line(line)
-            output.add_line("=" * 80)
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    dataset_info[key.strip()] = value.strip()
             
-            # Create datasets
-            train_dataset = BiodiversityTiffDataset(
+            # Ensure data paths are correct
+            data_root = Path('C:/Users/Admin/anaconda3/envs/GeoSeg-Kathe/data')
+            
+            # Get dataset path information from DATASETS dictionary
+            for dataset_key, info in DATASETS.items():
+                if dataset_key in config_details:
+                    train_path = data_root / info['path']
+                    # Try to use separate validation path
+                    val_path = data_root / 'Biodiversity_tiff/Val'
+                    break
+            else:
+                train_path = data_root / 'Biodiversity_tiff/Train'  # Default path
+                val_path = data_root / 'Biodiversity_tiff/Val'      # Default val path
+            
+            # Validate paths exist
+            if not train_path.exists():
+                output.add_line(f"ERROR: Train directory not found: {train_path}")
+                return output.get_output_lines()
+                
+            if not val_path.exists():
+                logging.warning(f"Val directory not found: {val_path}")
+                logging.warning("Will use Train dataset for validation")
+                val_path = train_path
+            else:
+                logging.info(f"Using validation data from: {val_path}")
+            
+            # Setup train dataset and loader
+            train_dataset = BiodiversityTiffTrainDataset(
                 data_root=str(train_path),
-                mode='train',
-                mosaic_ratio=0.0,
                 transform=train_aug,
+                mosaic_ratio=0.25
             )
             
-            # Create validation dataset using the correct path
-            val_dataset = BiodiversityTiffDataset(
-                data_root=str(val_path), 
-                mode='val',
-                transform=val_aug,
-            )
-            
-            logging.info(f"Training with {len(train_dataset)} training samples and {len(val_dataset)} validation samples")
-            
-            # Setup data loaders
             train_loader = DataLoader(
                 dataset=train_dataset,
                 batch_size=batch_size,
@@ -380,6 +317,22 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
                 drop_last=True
             )
             
+            # Setup validation dataset and loader
+            val_dataset = BiodiversityTiffTrainDataset(
+                data_root=str(val_path),
+                transform=val_aug,
+                mosaic_ratio=0.0  # No mosaic for validation
+            )
+            
+            if len(train_dataset) == 0:
+                output.add_line(f"ERROR: Training dataset is empty!")
+                return output.get_output_lines()
+            
+            if len(val_dataset) == 0:
+                output.add_line(f"ERROR: Validation dataset is empty!")
+                return output.get_output_lines()
+            
+            logging.info(f"Training with {len(train_dataset)} training samples and {len(val_dataset)} validation samples")
             val_loader = DataLoader(
                 dataset=val_dataset,
                 batch_size=batch_size,
@@ -389,28 +342,38 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
                 drop_last=False
             )
             
-            # Setup optimizer and scheduler - FIXED: use 'model' instead of 'net'
+            # Setup optimizer and scheduler
             layerwise_params = {"backbone.*": dict(lr=backbone_lr, weight_decay=backbone_weight_decay)}
-            net_params = process_model_params(model, layerwise_params=layerwise_params)  # Changed from 'net' to 'model'
+            net_params = process_model_params(model, layerwise_params=layerwise_params)
             base_optimizer = torch.optim.AdamW(net_params, lr=lr, weight_decay=weight_decay)
             optimizer = Lookahead(base_optimizer)
-            lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)  # Changed to just epochs
+            lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
             
-            # Save configuration
-            config_log = f"""
-            Dataset: {dataset_path}
-            Learning Rate: {lr}
-            Backbone Learning Rate: {backbone_lr}
-            Batch Size: {batch_size}
-            Epochs: {epochs}
-            Weight Decay: {weight_decay}
-            Backbone Weight Decay: {backbone_weight_decay}
-            Scale: {scale}
-            Checkpoint Directory: {checkpoint_dir}
-            Model: FTUNetFormer
-            """
-            with open(checkpoint_dir / 'config.txt', 'w') as f:
-                f.write(config_log)
+            # Load checkpoint if resuming
+            if start_epoch > 0:
+                if load_checkpoint_for_resume(checkpoint_dir, last_completed_epoch, 
+                                             model, optimizer, lr_scheduler):
+                    output.add_line(f"[OK] Successfully loaded checkpoint from epoch {last_completed_epoch}")
+                else:
+                    output.add_line(f"[WARNING] Could not load checkpoint, starting from scratch")
+                    start_epoch = 0
+            
+            # Save configuration (only if starting fresh)
+            if start_epoch == 0:
+                config_log = f"""
+                Dataset: {dataset_path}
+                Learning Rate: {lr}
+                Backbone Learning Rate: {backbone_lr}
+                Batch Size: {batch_size}
+                Epochs: {epochs}
+                Weight Decay: {weight_decay}
+                Backbone Weight Decay: {backbone_weight_decay}
+                Scale: {scale}
+                Checkpoint Directory: {checkpoint_dir}
+                Model: UNetFormer
+                """
+                with open(checkpoint_dir / 'config.txt', 'w') as f:
+                    f.write(config_log)
             
             # Setup evaluator for metrics
             evaluator = Evaluator(num_class=6)
@@ -418,8 +381,8 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
             # Class names for logging
             class_names = ['Background', 'Forest land', 'Grassland', 'Cropland', 'Settlement', 'Seminatural Grassland']
             
-            # Training loop implementation
-            for epoch in range(epochs):
+            # Training loop implementation - START FROM start_epoch
+            for epoch in range(start_epoch, epochs):
                 model.train()
                 total_train_loss = 0
                 train_evaluator = Evaluator(num_class=6)
@@ -431,7 +394,7 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
                     optimizer.zero_grad()
                     outputs = model(images)
                     
-                    # Handle outputs - model returns tuple of (main_out, aux_out)
+                    # Handle outputs
                     if isinstance(outputs, tuple):
                         main_out = outputs[0]
                     else:
@@ -467,7 +430,6 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
                         
                         outputs = model(images)
                         
-                        # Handle outputs - model returns tuple of (main_out, aux_out)
                         if isinstance(outputs, tuple):
                             main_out = outputs[0]
                         else:
@@ -476,7 +438,6 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
                         val_loss = loss_fn(outputs, masks)
                         total_val_loss += val_loss.item()
                         
-                        # Get predictions for metrics using main output
                         pred = main_out.data.cpu().numpy()
                         target = masks.cpu().numpy()
                         pred = np.argmax(pred, axis=1)
@@ -493,7 +454,7 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
                 train_miou = np.nanmean(train_iou_scores)
                 train_f1 = np.nanmean(train_f1_scores)
                 
-                # Log validation metrics in the desired format
+                # Log metrics
                 output.add_line(f"Epoch: {epoch}")
                 output.add_line(f"Val mIoU: {val_miou:.4f}")
                 output.add_line(f"Val F1: {val_f1:.4f}")
@@ -505,8 +466,6 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
                     else:
                         output.add_line(f"'{name}': {iou:.4f}")
                 
-                # Log training metrics in the desired format
-                output.add_line(f"Epoch: {epoch}")
                 output.add_line(f"Train mIoU: {train_miou:.4f}" if not np.isnan(train_miou) else "Train mIoU: nan")
                 output.add_line(f"Train F1: {train_f1:.4f}" if not np.isnan(train_f1) else "Train F1: nan")
                 output.add_line(f"Train OA: {train_oa_score:.4f}")
@@ -539,7 +498,7 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
                     }
                 }
                 
-                # Save temporary checkpoint for tracking best ones
+                # Save checkpoint
                 temp_checkpoint_path = checkpoint_dir / f'temp_epoch{epoch + 1:02d}.ckpt'
                 torch.save(checkpoint_data, temp_checkpoint_path)
                 
@@ -549,10 +508,22 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
                 # Always save the last checkpoint
                 torch.save(checkpoint_data, checkpoint_dir / 'last.ckpt')
                 
+                # 🔥 IMPORTANT: Save progress after each epoch
+                save_training_progress(checkpoint_dir, epoch, config_details)
+                
+                # Also save output after each epoch so we don't lose logs
+                save_run_output(output.get_output_lines(), checkpoint_dir)
+                
                 # Update learning rate
                 lr_scheduler.step()
             
-            # After training, rename the best checkpoints to meaningful names
+            # Mark training as complete
+            mark_training_complete(checkpoint_dir)
+            output.add_line("=" * 80)
+            output.add_line("[COMPLETED] TRAINING COMPLETED SUCCESSFULLY")
+            output.add_line("=" * 80)
+            
+            # After training, rename the best checkpoints
             best_checkpoints = best_tracker.get_best_checkpoints()
             for i, (score, epoch, temp_path) in enumerate(best_checkpoints):
                 if temp_path.exists():
@@ -560,24 +531,33 @@ def run_training_configuration(dataset_path, checkpoint_dir, lr, backbone_lr, ba
                     new_path = checkpoint_dir / new_name
                     temp_path.rename(new_path)
             
-            # Clean up any remaining temporary checkpoints
+            # Clean up temporary checkpoints
             for temp_file in checkpoint_dir.glob('temp_epoch*.ckpt'):
                 if temp_file.exists():
                     temp_file.unlink()
             
         except Exception as e:
-            output.add_line(f"Training failed with error: {str(e)}")
+            output.add_line(f"[ERROR] Training failed with error: {str(e)}")
             output.add_line("\nFull traceback:")
             output.add_line(traceback.format_exc())
+            # Don't mark as complete if there was an error
         finally:
             cleanup_wandb()
             
         return output.get_output_lines()
 
+# ============================================================================
+# MODIFIED is_training_completed
+# ============================================================================
+
 def is_training_completed(checkpoint_dir, epochs):
     """Check if training was already completed for this configuration"""
-    last_checkpoint = checkpoint_dir / 'last.ckpt'
-    return last_checkpoint.exists()
+    last_completed_epoch, is_completed = get_training_progress(checkpoint_dir)
+    return is_completed
+
+# ============================================================================
+# MAIN FUNCTION (UNCHANGED)
+# ============================================================================
 
 def main():
     logging.basicConfig(level=logging.INFO)
@@ -669,7 +649,7 @@ Checkpoint Directory: {checkpoint_dir}"""
                     epochs,
                     weight_decay,
                     backbone_weight_decay,
-                    scale,  # Add scale parameter here
+                    scale,
                     config_details
                 )
                 
@@ -679,10 +659,10 @@ Checkpoint Directory: {checkpoint_dir}"""
                 
             except Exception as e:
                 logging.error(f"Error during training: {str(e)}")
-                cleanup_wandb()  # Ensure wandb is cleaned up after error
+                cleanup_wandb()
                 continue
             
-            # Clean up (removed wandb.finish() since it's handled by cleanup_wandb)
+            # Clean up
             torch.cuda.empty_cache()
             
             logging.info(f"Completed combination {idx}/{total_combinations}")
