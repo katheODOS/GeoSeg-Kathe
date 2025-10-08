@@ -6,3 +6,15 @@ geoseg/models/__pycache__/
 geoseg/losses/__pycache__/
 model_weights/biodiversity_tiff/unetformer4-r18-512crop-ms-epoch30-rep/last.ckpt
 model_weights/biodiversity_tiff/unetformer4-r18-512crop-ms-epoch30-rep/unetformer-r18-512crop-ms-epoch30-rep.ckpt
+geoseg/models/__pycache__/UNetFormer.cpython-311.pyc
+lightning_logs/ftunetformer/ftunetformer-4band-e45-defaultparams-norm-basedata/version_1/hparams.yaml
+lightning_logs/ftunetformer/ftunetformer-4band-e45-defaultparams-norm-basedata/version_1/metrics.csv
+lightning_logs/ftunetformer/ftunetformer-512-crop-ms-e45/version_0/metrics.csv
+lightning_logs/ftunetformer/ftunetformer-512-crop-ms-e45/version_1/metrics.csv
+model_weights/biodiversity_tiff4/ftunetformer-4band-e45-defaultparams-norm-basedata/ftunetformer-4band-e45-defaultparams-norm-basedata.ckpt
+model_weights/biodiversity_tiff4/ftunetformer-4band-e45-defaultparams-norm-basedata/last.ckpt
+model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/ftunetformer-512-crop-ms-e45-v1.ckpt
+model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/ftunetformer-512-crop-ms-e45.ckpt
+model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/last-v1.ckpt
+model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/last.ckpt
+model_weights/biodiversity_tiff4/ftunetformer-512-crop-ms-e45/results/evaluation_report.txt
